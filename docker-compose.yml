@@ -1,0 +1,75 @@
+# Entorno de desarrollo local de RM Shop. Uso: docker compose up --build
+name: rmshop
+
+services:
+  db:
+    image: postgres:${POSTGRES_VERSION:-17.11-alpine}
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-rmshop}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rmshop}
+      POSTGRES_DB: ${POSTGRES_DB:-rmshop}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "${DB_HOST_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rmshop} -d ${POSTGRES_DB:-rmshop}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./apps/backend
+      target: dev
+    env_file: apps/backend/.env
+    # ":z" etiqueta el montaje para SELinux (Fedora, RHEL); en otros sistemas no tiene efecto.
+    volumes:
+      - ./apps/backend:/app:z
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=4)"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  frontend:
+    build:
+      context: ./apps/frontend
+      target: dev
+    env_file: apps/frontend/.env
+    volumes:
+      - ./apps/frontend:/app:z
+      # Conserva los node_modules de la imagen: el montaje de arriba los taparía.
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:5173/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  mailpit:
+    image: axllent/mailpit:v1.33.0
+    ports:
+      - "8025:8025" # Interfaz web
+      - "1025:1025" # SMTP
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+volumes:
+  pgdata:
