@@ -6,7 +6,6 @@ from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
 from django.http import Http404
 from rest_framework import exceptions, status
 from rest_framework.response import Response
-from rest_framework.views import set_rollback
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +65,10 @@ def api_exception_handler(exc, context):
             build_error("internal_error", "Ocurrió un error inesperado. Intenta de nuevo."),
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+
+    # Importación diferida: rest_framework.views carga la clase de autenticación, que importa
+    # este módulo.
+    from rest_framework.views import set_rollback
 
     set_rollback()
 
