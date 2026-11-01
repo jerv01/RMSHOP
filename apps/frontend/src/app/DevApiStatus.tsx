@@ -1,14 +1,19 @@
+import { useAuth } from "@clerk/react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router";
 import { apiFetch } from "@/shared/api/client";
+import { useMe } from "@/shared/api/useMe";
 
 interface Health {
   status: string;
   database: string;
 }
 
-/** Solo desarrollo: muestra si la API y la base de datos responden. */
+/** Solo desarrollo: muestra si la API responde y, con sesión, el resultado de `GET /me`. */
 export function DevApiStatus() {
+  const { isSignedIn } = useAuth();
   const health = useQuery({ queryKey: ["health"], queryFn: () => apiFetch<Health>("/health") });
+  const me = useMe();
 
   return (
     <section
@@ -23,6 +28,20 @@ export function DevApiStatus() {
           API: {health.data.status} · Base de datos: {health.data.database}
         </p>
       )}
+
+      <h3 className="mt-3 font-semibold">GET /me</h3>
+      {!isSignedIn && (
+        <p>
+          Sin sesión.{" "}
+          <Link to="/ingresar" className="underline">
+            Inicia sesión
+          </Link>{" "}
+          para probarlo.
+        </p>
+      )}
+      {isSignedIn && me.isPending && <p>Consultando…</p>}
+      {me.isError && <p role="alert">Error: {me.error.message}</p>}
+      {me.data && <pre className="overflow-x-auto">{JSON.stringify(me.data, null, 2)}</pre>}
     </section>
   );
 }
