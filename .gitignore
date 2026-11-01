@@ -26,3 +26,7 @@ coverage/
 *.swp
 .DS_Store
 Thumbs.db
+
+# Estáticos generados por collectstatic
+apps/backend/staticfiles/*
+!apps/backend/staticfiles/.gitkeep

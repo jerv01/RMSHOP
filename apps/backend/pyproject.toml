@@ -1,0 +1,47 @@
+[project]
+name = "rmshop-backend"
+version = "0.1.0"
+description = "API de RM Shop (Django + DRF)"
+requires-python = ">=3.14"
+dependencies = [
+    "django>=5.2.18,<5.3",
+    "djangorestframework>=3.16",
+    "clerk-backend-api",
+    "svix",
+    "django-cors-headers",
+    "psycopg[binary]",
+    "dj-database-url",
+    "gunicorn",
+    "whitenoise",
+    "django-anymail[resend]",
+    "Pillow",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-django",
+    "pytest-cov",
+    "factory-boy",
+    "freezegun",
+    "respx",
+    "ruff",
+    "pip-audit",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+extend-exclude = ["staticfiles"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "DJ"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["apps", "config"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings.local"
+testpaths = ["apps"]
+pythonpath = ["."]
+python_files = ["test_*.py"]
