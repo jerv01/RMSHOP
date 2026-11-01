@@ -8,8 +8,8 @@ export function ConfigMissing() {
         <code>apps/frontend/.env</code>.
       </p>
       <p className="mt-2">
-        Copia la clave publicable desde el panel de Clerk, guarda el archivo y reinicia el servicio
-        con <code>docker compose restart frontend</code>.
+        Copia la clave publicable desde el panel de Clerk, guarda el archivo y recrea el servicio
+        con <code>docker compose up -d</code>.
       </p>
       <p className="mt-2">
         Los pasos completos están en <code>docs/clerk-setup.md</code>.

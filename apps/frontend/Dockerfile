@@ -3,6 +3,8 @@
 
 FROM node:26.13.0-alpine AS dev
 RUN npm install -g pnpm@10.34.9
+# Store fijo: con node_modules en un volumen aparte, pnpm crearía otro dentro del código montado.
+ENV npm_config_store_dir=/pnpm-store
 WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
