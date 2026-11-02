@@ -12,6 +12,20 @@ Guía para quien configura Clerk por primera vez en RM Shop. Se hace **una sola 
 4. Activa **Password** como método de acceso.
 5. Deja desactivados los inicios de sesión social: esta versión no los usa.
 
+### Reglas de contraseña (P-2, supuesto)
+
+El backlog deja las reglas de complejidad sin definir (P-2). Mientras la clienta no las fije, el equipo usa este **supuesto**, que se configura solo en Clerk (ni el frontend ni el backend validan contraseñas):
+
+- Longitud mínima de 8 caracteres.
+- Rechazar contraseñas filtradas en brechas de seguridad conocidas (**Reject compromised passwords**) ⚠️.
+- Sin exigir mayúsculas, números ni símbolos.
+
+En el panel: **User & authentication → Password** ⚠️ (la sección exacta puede variar). Si la clienta define otras reglas, solo se cambia ahí. Clerk devuelve errores de campo (contraseña corta, vacía o comprometida) que el formulario muestra marcando el campo (AC-HU-7-3).
+
+### Textos de los mensajes
+
+Los mensajes del formulario vienen de `@clerk/localizations` (`esES`). El criterio AC-HU-7-2 exige "Este correo ya está registrado", y `esES` dice otra cosa, así que `apps/frontend/src/app/localization.ts` lo sobrescribe. Si un criterio futuro pide otro texto, se agrega ahí.
+
 ## 2. Hacer obligatoria la verificación del correo
 
 En la misma página **User & authentication**, en **Email**, deja activada la opción **Verify at sign-up** ⚠️ (la etiqueta puede variar). Con esto nadie completa el registro sin verificar su correo, y el backend puede suponer que toda sesión válida es de un correo verificado (`IsCustomer`).
@@ -133,6 +147,10 @@ Si el rol no es exactamente `admin`, el frontend muestra "No tienes permisos" y 
 - Quien crea la instancia entrega las claves por un canal seguro (gestor de contraseñas o mensaje cifrado), nunca por el chat del grupo ni por correo sin cifrar.
 - Las claves van solo en los archivos `.env`, que están en `.gitignore`. **Nunca** las subas a git. Si se filtra una clave, rótala en **API keys** y avisa al equipo.
 - La instancia de producción será otra, con sus propias claves (`pk_live_` y `sk_live_`), cuando llegue el despliegue.
+
+## Redirecciones
+
+Al terminar el registro (después de verificar el correo con el código) y al iniciar sesión, el cliente vuelve a la página de la que venía (`redirect_url`) o, si no hay, al inicio (`/`). El panel de administración siempre termina en `/admin/productos`. Se configura con `fallbackRedirectUrl` en `SignUpPage.tsx` y `SignInPage.tsx`.
 
 ## Comprobación
 
