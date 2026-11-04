@@ -231,6 +231,28 @@ RM Shop es una plataforma web que centraliza el catálogo de la marca de ropa RM
 
 #### **Feature 2.3: Cuentas de administrador**
 
+**HU-11** \[SIN-IA\]
+
+* Actor(es): Administrador  
+* Descripción: Como Administrador, quiero acceder con una cuenta de administrador separada de las cuentas de clientes, para operar el panel administrativo de forma independiente de la tienda.  
+* Detalles de la HU:  
+  * Tareas funcionales: acceso exclusivo al panel; separar las credenciales de administradores y clientes.  
+  * Entrada: credenciales de administrador \| Proceso: validación contra las cuentas de administrador \| Salida: acceso al panel administrativo.  
+  * Flujo de interfaz (texto): el administrador abre la entrada del panel, inicia sesión y ve el panel (productos, inventario, pedidos).  
+  * Reglas de negocio y datos: una cuenta de cliente no accede al panel y viceversa. Los permisos de los administradores son idénticos.  
+* Restricciones (requerimientos no funcionales):  
+  * El acceso al panel exige credenciales válidas en el 100 % de los intentos.  
+  * El panel se cierra tras 30 minutos de inactividad. \[SUPUESTO\]  
+  * Los accesos de administrador quedan registrados con fecha y hora. \[SUPUESTO\]  
+* Criterios de aceptación:  
+  * AC-HU-11-1 (Camino feliz): Dadas credenciales de administrador válidas, cuando inicia sesión en el panel, entonces accede a las funciones administrativas.  
+  * AC-HU-11-2 (Alternativo/Error): Dadas credenciales de una cuenta de cliente, cuando intenta entrar al panel, entonces se rechaza el acceso.  
+  * AC-HU-11-3 (Caso límite): Dado un administrador con sesión, cuando intenta abrir directamente una pantalla del panel sin sesión válida, entonces es llevado al inicio de sesión.  
+* Dependencias: Ninguna  
+* Pre-chequeo DoR: \[1\] Calidad: Sí \| \[2\] Criterios: Sí (con \[SUPUESTO\]) \| \[3\] Dependencias: Sí \| \[4-6\] Se evalúan en Etapa 3
+
+#### **Feature 2.3: Cuentas de administrador**
+
 **HU-12** \[SIN-IA\]
 
 * Actor(es): Administrador  
@@ -252,25 +274,6 @@ RM Shop es una plataforma web que centraliza el catálogo de la marca de ropa RM
 * AC-HU-12-5 (Seguridad): Dado un usuario sin rol de administrador (cliente o sin sesión), cuando intenta registrar o eliminar un administrador, entonces el sistema rechaza la operación.  
 * Dependencias: HU-11  
 * Pre-chequeo DoR: \[1\] Calidad: Sí \| \[2\] Criterios: Sí (con \[SUPUESTO\]) \| \[3\] Dependencias: Sí \| \[4-6\] Se evalúan en Etapa 3
-**HU-12** \[SIN-IA\]
-
-* Actor(es): Administrador  
-* Descripción: Como Administrador, quiero que el sistema limite a 3 las cuentas de administrador con permisos idénticos, para mantener el control del acceso al panel.  
-* Detalles de la HU:  
-  * Tareas funcionales: impedir crear más de 3 cuentas de administrador; asegurar permisos idénticos.  
-  * Entrada: intento de crear una cuenta de administrador \| Proceso: se cuenta las cuentas existentes \| Salida: cuenta creada o rechazo.  
-  * Flujo de interfaz (texto): al agregar un administrador, si ya hay 3, se muestra "Límite de administradores alcanzado".  
-  * Reglas de negocio y datos: máximo 3, incluida Libia Palacios. El mecanismo para crear o dar de baja administradores no está definido (P-4).  
-* Restricciones (requerimientos no funcionales):  
-  * El límite se aplica en el 100 % de los intentos, incluso simultáneos.  
-  * Toda alta o baja de administrador queda registrada. \[SUPUESTO\]  
-* Criterios de aceptación:  
-  * AC-HU-12-1 (Camino feliz): Dadas 2 cuentas de administrador, cuando se crea una tercera, entonces se crea con los mismos permisos.  
-  * AC-HU-12-2 (Alternativo/Error): Dadas 3 cuentas, cuando se intenta crear una cuarta, entonces se rechaza con un mensaje claro.  
-  * AC-HU-12-3 (Caso límite): Dadas 3 cuentas y la baja de una, cuando se crea otra, entonces se permite. \[SUPUESTO\]  
-* Dependencias: HU-11  
-* Pre-chequeo DoR: \[1\] Calidad: Sí \| \[2\] Criterios: Sí (con \[SUPUESTO\]) \| \[3\] Dependencias: Sí \| \[4-6\] Se evalúan en Etapa 3
-
 ---
 
 ### **ÉPICA 3: Carrito de Compras (CART)**
