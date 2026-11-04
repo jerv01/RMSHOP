@@ -10,7 +10,7 @@ RM Shop es una plataforma web que centraliza el catálogo de la marca de ropa RM
 
 * **Visitante sin cuenta:** persona que navega el sitio y el catálogo sin registrarse; no puede agregar al carrito ni usar el chatbot.  
 * **Cliente registrado:** persona con cuenta verificada que agrega productos al carrito, paga, sigue sus pedidos y usa el chatbot; no cambia estados directamente.  
-* **Administrador:** una de máximo 3 personas (incluida la propietaria Libia Palacios), con permisos idénticos y cuenta separada, que gestiona productos, inventario, descuentos, pedidos y analítica.
+* **Administrador:** una persona (incluida la propietaria Libia Palacios), sin límite de cantidad, con permisos idénticos y cuenta separada, que gestiona productos, inventario, descuentos, pedidos y analítica.
 
 ## **2\. Backlog con Criterios de Aceptación**
 
@@ -250,8 +250,6 @@ RM Shop es una plataforma web que centraliza el catálogo de la marca de ropa RM
   * AC-HU-11-3 (Caso límite): Dado un administrador con sesión, cuando intenta abrir directamente una pantalla del panel sin sesión válida, entonces es llevado al inicio de sesión.  
 * Dependencias: Ninguna  
 * Pre-chequeo DoR: \[1\] Calidad: Sí \| \[2\] Criterios: Sí (con \[SUPUESTO\]) \| \[3\] Dependencias: Sí \| \[4-6\] Se evalúan en Etapa 3
-
-#### **Feature 2.3: Cuentas de administrador**
 
 **HU-12** \[SIN-IA\]
 

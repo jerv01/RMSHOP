@@ -6,7 +6,7 @@ RM Shop es una tienda en línea de alcance local: SPA en React, API en Django, b
 
 ## 1. Resumen y alcance
 
-RM Shop centraliza el catálogo de la marca RM y vende en Cali, Palmira, Jamundí y Yumbo con pago en tarjeta débito o Nequi, un chatbot de IA y un panel para máximo 3 administradores.
+RM Shop centraliza el catálogo de la marca RM y vende en Cali, Palmira, Jamundí y Yumbo con pago en tarjeta débito o Nequi, un chatbot de IA y un panel para administradores, sin límite de cantidad.
 
 | Restricción | Origen | Resolución |
 | --- | --- | --- |
@@ -17,7 +17,7 @@ RM Shop centraliza el catálogo de la marca RM y vende en Cali, Palmira, Jamund�
 | Cancelar el pedido a los 30 min (±60 s) sin respuesta de la pasarela | HU-24 | `pg_cron` de Supabase llama cada minuto a un endpoint interno de la API |
 | Correos en 2 minutos o menos | Épica 9 | Envío tras confirmar la transacción, con reintento en la llamada de cada minuto |
 | Pago con tarjeta débito y Nequi | HU-19, HU-20 | Wompi detrás de una interfaz propia |
-| Máximo 3 administradores, con cuenta separada | HU-11, HU-12 | Rol `admin` en Clerk; límite validado en el backend |
+| Administradores con cuenta separada y sin límite de cantidad | HU-11, HU-12 | Rol `admin` en Clerk (`public_metadata.role`); alta por invitación y baja desde el panel, validadas en el backend |
 | Envío a 4 municipios con tarifa fija | Épica 5 | `shipping_zones`: Cali 5.000 COP; Palmira, Jamundí y Yumbo 10.000 COP |
 | Chatbot de texto con sesión, límite de uso y sin datos personales | HU-50 a HU-54 | Servicio en el backend con Gemini y herramientas acotadas |
 | Español y COP | HU-60 | Clerk en español; formato `es-CO` |
@@ -126,6 +126,7 @@ Se conserva el esquema propuesto, sin `reviews` (ninguna historia la usa), con a
 | `order_items` | `product_name`, `color` y `size` como copia fija | HU-40 |
 | `order_status_history` (nueva) | `order_id`, `from_status`, `to_status`, `changed_by` (administrador o sistema), `created_at` | HU-31, HU-42 |
 | `payments` | `amount`, `provider`, `created_at`; `transaction_id` único; `payment_method` solo `debit_card` o `nequi` | HU-19 a HU-24 |
+| `admin_audit_log` (nueva) | `action` (`admin_invited`, `admin_removed`), `actor_id` (FK a `users`, `SET_NULL`), `actor_email`, `target_email`, `target_clerk_user_id` (nulo en invitaciones), `created_at` | HU-12 |
 | `notification_log` (nueva) | `order_id`, `user_id`, `event`, `status`, `sent_at`; único (`order_id`, `event`) | HU-46 a HU-49 |
 | `chat_usage` (nueva) | `user_id`, `period`, `message_count`; sin contenido de mensajes | HU-51 |
 
@@ -139,7 +140,7 @@ Un diseño es una fila de `products`; cada combinación de color y talla es una 
 - **Integridad**: `payments.transaction_id` único; `order_items` con precio y SKU congelados; una prenda publicada tiene entre 1 y 3 imágenes, validado en el servicio de productos.
 - **Supabase**: Row Level Security activado, sin políticas, en todas las tablas de `public`; Django accede con su propio rol.
 - **Usuarios**: contraseñas, sesiones y roles viven en Clerk. `users` se conserva mínima porque `carts`, `orders`, `user_addresses`, `chat_usage` y `stock_movements` necesitan una clave foránea local, y el panel muestra nombre y correo sin consultar a Clerk por cada pedido.
-- **Administradores**: el rol `admin` vive en Clerk (`public_metadata.role`) y se asigna solo con un comando de gestión que valida el máximo de 3.
+- **Administradores**: el rol `admin` vive en Clerk (`public_metadata.role`) y solo lo asigna el servidor: la primera cuenta se marca a mano (`docs/clerk-setup.md`, sección 7) y las demás nacen de una invitación creada por un administrador (HU-12). No hay límite de cantidad. Al borrarse un usuario en Clerk, el webhook `user.deleted` conserva la fila local con los datos personales vaciados, para no perder `stock_movements` ni `order_status_history`.
 
 ## 5. Arquitectura del backend
 
@@ -168,7 +169,8 @@ Las épicas 11 y 12 viven en el frontend.
 - `selectors.py`: consultas de lectura.
 - `services.py`: casos de uso con `transaction.atomic()`; único lugar donde cambian el stock, el estado de pedidos y los pagos.
 - `serializers.py` y `views.py`: validación de entrada y respuesta HTTP.
-- `management/commands/`: `run_scheduled_tasks` y asignación del rol de administrador.
+- `management/commands/`: `run_scheduled_tasks`.
+- `clerk_admin.py` (app `users`): adaptador de Clerk para usuarios e invitaciones; las pruebas lo reemplazan por una versión en memoria.
 - `tests/`: pruebas por servicio y por endpoint.
 
 ### 5.3 API REST
@@ -185,6 +187,7 @@ Base `/api/v1/`. Los errores responden `{code, message, fields}` sin detalles t�
 | Pedidos | `GET /orders`, `GET /orders/{n}`, `POST /orders/{n}/cancel` | Cliente |
 | Chatbot | `POST /chat/messages` | Cliente |
 | Administración | `/admin/products`, `/admin/variants`, `/admin/stock`, `/admin/orders`, `/admin/orders/{n}/status` | Administrador |
+| Gestión de administradores (HU-12) | `GET /admin/administrators`, `POST /admin/administrators` (`{email}` → `201 {status: "invited", email}`), `DELETE /admin/administrators/{clerk_user_id}` (`204`) | Administrador |
 | Webhooks de Clerk | `POST /webhooks/clerk` | Clerk (firma Svix) |
 | Tareas programadas | `POST /internal/run-scheduled-tasks` | `pg_cron` (encabezado `X-Cron-Secret`) |
 
@@ -195,7 +198,11 @@ Base `/api/v1/`. Los errores responden `{code, message, fields}` sin detalles t�
 - El token incluye `email` y `role` (`public_metadata.role`), definidos en la plantilla de sesión de Clerk.
 - El primer request autenticado crea el registro local en `users` con `clerk_user_id`; los webhooks `user.updated` y `user.deleted` lo mantienen sincronizado y `user.created` dispara el correo de bienvenida (HU-43).
 - Permisos: `IsCustomer` para clientes verificados e `IsRMAdmin` (`role=admin`) para `/admin/*`.
-- El rol `admin` se asigna con un comando de gestión que valida el máximo de 3 y actualiza `public_metadata.role` en Clerk.
+- El rol `admin` no se asigna a cuentas existentes. Gestión de administradores (HU-12), siempre con Clerk como fuente de verdad:
+  - **Invitar** (`POST /admin/administrators`): se normaliza el correo (`strip` y minúsculas) y se valida. Se buscan cuentas de Clerk con ese correo (cualquiera de los correos de la cuenta): si es administrador, `409 already_admin`; si es otra cuenta, `409 email_belongs_to_customer`. Si ya hay una invitación pendiente, `409 invitation_pending`. Si no, se crea una invitación con `public_metadata={"role": "admin"}` y `redirect_url` a `FRONTEND_BASE_URL/admin/registro`; Clerk copia la metadata al usuario cuando acepta. La auditoría (`admin_invited`) se escribe solo si Clerk aceptó la invitación.
+  - **Listar** (`GET /admin/administrators`): se recorren los usuarios de Clerk con paginación y se filtra por `public_metadata.role == "admin"` (`users.list` no filtra por metadata). Es O(n) sobre los usuarios; migrar a una tabla local sincronizada por webhooks si la instancia crece.
+  - **Eliminar** (`DELETE /admin/administrators/{id}`): dentro de `transaction.atomic()` y bajo `pg_advisory_xact_lock` (de transacción, compatible con el Transaction Pooler de Supabase) se lista a los administradores y se valida que quien solicita siga siendo administrador, que no se elimine a sí mismo (`409 cannot_delete_self`), que el objetivo sea administrador (`404 admin_not_found`; nunca se borra a un cliente) y que no sea el último (`409 cannot_delete_last_admin`). Se escribe `admin_removed` y luego se borra el usuario en Clerk; si Clerk falla (`502 clerk_unavailable`), se revierte todo. El bloqueo evita que dos administradores que se eliminan entre sí a la vez dejen la tienda sin ninguno.
+  - Tras una baja, el token del eliminado puede seguir siendo válido hasta ~60 s (sección 3 de `clerk-setup.md`); las operaciones de HU-12 comprueban el rol contra Clerk, así que ese administrador ya no puede gestionar cuentas.
 - Los administradores inician sesión en `/admin/ingresar` con la misma instancia de Clerk; son usuarios distintos de los clientes.
 
 ### 5.5 Reglas críticas
@@ -223,7 +230,7 @@ src/
 │   ├── orders/     # Lista, detalle e historial de estados
 │   ├── chatbot/    # Panel de chat
 │   ├── legal/      # Datos personales, términos, garantías
-│   └── admin/      # products/, inventory/, orders/ (carga diferida)
+│   └── admin/      # products/, inventory/, orders/, administrators/ (carga diferida)
 ├── shared/
 │   ├── ui/         # Botón, campo, diálogo, selector (accesibles)
 │   ├── api/        # Cliente HTTP con el token de Clerk
@@ -237,7 +244,7 @@ src/
 | --- | --- | --- |
 | Pública | `/`, `/categoria/:slug`, `/producto/:slug`, `/terminos`, `/datos-personales`, `/garantias`, `/ingresar`, `/registro` | Ninguna |
 | Cliente | `/carrito`, `/checkout`, `/pedidos`, `/pedidos/:numero` | Sesión de Clerk con correo verificado |
-| Administrador | `/admin/ingresar`, `/admin/productos`, `/admin/inventario`, `/admin/pedidos` | Rol `admin`; carga diferida |
+| Administrador | `/admin/ingresar`, `/admin/registro` (destino de la invitación, pública), `/admin/productos`, `/admin/inventario`, `/admin/pedidos`, `/admin/administradores` | Rol `admin` (salvo ingresar y registro); carga diferida |
 
 ### 6.3 Tecnologías por responsabilidad
 
@@ -339,7 +346,8 @@ Conexión a Supabase: `DATABASE_URL` apunta al Transaction Pooler (puerto 6543) 
 | `DATABASE_URL` | Backend | Transaction Pooler, puerto 6543 |
 | `MIGRATIONS_DATABASE_URL` | GitHub Actions | Session Pooler, puerto 5432 |
 | `CORS_ALLOWED_ORIGINS`, `CSRF_TRUSTED_ORIGINS` | Backend | Dominio del frontend |
-| `CLERK_SECRET_KEY`, `CLERK_WEBHOOK_SECRET` | Backend | Verificación de tokens y de webhooks |
+| `CLERK_SECRET_KEY`, `CLERK_WEBHOOK_SECRET` | Backend | Verificación de tokens y de webhooks; gestión de administradores |
+| `FRONTEND_BASE_URL` | Backend | URL pública del frontend; arma el enlace de la invitación de administrador (`/admin/registro`) |
 | `WOMPI_PUBLIC_KEY`, `WOMPI_PRIVATE_KEY`, `WOMPI_EVENTS_SECRET`, `WOMPI_INTEGRITY_SECRET` | Backend | Pagos |
 | `RESEND_API_KEY`, `DEFAULT_FROM_EMAIL` | Backend | Correo transaccional |
 | `GEMINI_API_KEY`, `GEMINI_MODEL` | Backend | Solo en el servidor |
