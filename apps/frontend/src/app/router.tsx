@@ -1,5 +1,6 @@
 import { createBrowserRouter } from "react-router";
 import { AdminSignInPage } from "@/features/auth/AdminSignInPage";
+import { AdminSignUpPage } from "@/features/auth/AdminSignUpPage";
 import { RequireAdmin } from "@/features/auth/RequireAdmin";
 import { SignInPage } from "@/features/auth/SignInPage";
 import { SignUpPage } from "@/features/auth/SignUpPage";
@@ -22,6 +23,7 @@ export const router = createBrowserRouter([
     element: <AdminLayout />,
     children: [
       { path: "/admin/ingresar/*", element: <AdminSignInPage /> },
+      { path: "/admin/registro/*", element: <AdminSignUpPage /> },
       {
         // El panel se carga bajo demanda: los clientes no descargan su código.
         element: <RequireAdmin />,
@@ -36,6 +38,13 @@ export const router = createBrowserRouter([
             path: "/admin/inventario",
             lazy: async () => ({
               Component: (await import("@/features/admin/inventory/InventoryPage")).InventoryPage,
+            }),
+          },
+          {
+            path: "/admin/administradores",
+            lazy: async () => ({
+              Component: (await import("@/features/admin/administrators/AdministratorsPage"))
+                .AdministratorsPage,
             }),
           },
           {
