@@ -196,7 +196,7 @@ Base `/api/v1/`. Los errores responden `{code, message, fields}` sin detalles t�
 - Clerk gestiona registro, verificación de correo, inicio de sesión, recuperación de contraseña y roles.
 - El catálogo y la ficha de producto son públicos; el carrito y el resto de endpoints exigen el token de sesión de Clerk en `Authorization: Bearer`, validado por una clase de autenticación de DRF con `clerk-backend-api`.
 - El token incluye `email` y `role` (`public_metadata.role`), definidos en la plantilla de sesión de Clerk.
-- El primer request autenticado crea el registro local en `users` con `clerk_user_id`; los webhooks `user.updated` y `user.deleted` lo mantienen sincronizado y `user.created` dispara el correo de bienvenida (HU-43).
+- El primer request autenticado crea el registro local en `users` con `clerk_user_id`; los webhooks `user.updated` y `user.deleted` lo mantienen sincronizado y `user.created` dispara el correo de bienvenida (HU-43, ver sección 7.3).
 - Permisos: `IsCustomer` para clientes verificados e `IsRMAdmin` (`role=admin`) para `/admin/*`.
 - El rol `admin` no se asigna a cuentas existentes. Gestión de administradores (HU-12), siempre con Clerk como fuente de verdad:
   - **Invitar** (`POST /admin/administrators`): se normaliza el correo (`strip` y minúsculas) y se valida. Se buscan cuentas de Clerk con ese correo (cualquiera de los correos de la cuenta): si es administrador, `409 already_admin`; si es otra cuenta, `409 email_belongs_to_customer`. Si ya hay una invitación pendiente, `409 invitation_pending`. Si no, se crea una invitación con `public_metadata={"role": "admin"}` y `redirect_url` a `FRONTEND_BASE_URL/admin/registro`; Clerk copia la metadata al usuario cuando acepta. La auditoría (`admin_invited`) se escribe solo si Clerk aceptó la invitación.
@@ -285,7 +285,9 @@ src/
 ### 7.3 Correo
 
 - El envío ocurre al confirmarse la transacción (`transaction.on_commit`); si falla, queda en `notification_log` con estado `failed` y la tarea programada lo reintenta.
-- `notification_log` único por (`order_id`, `event`) evita correos duplicados (HU-49).
+- `notification_log` único por (`order_id`, `event`) evita correos duplicados (HU-49). Para los correos a usuarios (HU-43) aún no hay pedido: la tabla guarda `user_id`, es única por (`user_id`, `event`) y lleva `status` (`pending`, `sent`, `failed`, `undeliverable`), `attempts`, `last_error` y `last_attempt_at`; `order_id` se agregará con los pedidos.
+- Reintentos: `python manage.py retry_failed_emails` reintenta los `failed` pasados 60 s, hasta 5 intentos. Los errores permanentes (dominio inexistente, destinatario rechazado) quedan `undeliverable` y no se reintentan. Debe ejecutarse cada minuto (`run_scheduled_tasks` lo invocará cuando exista).
+- **Bienvenida (HU-43 y HU-44):** el correo de verificación (HU-44) lo envía Clerk; el backend envía solo el de bienvenida, en el webhook `user.created` o en la primera petición autenticada, lo que ocurra primero. No se envía a cuentas con rol `admin`.
 - El dominio del remitente lleva SPF, DKIM y DMARC.
 
 ### 7.4 Chatbot

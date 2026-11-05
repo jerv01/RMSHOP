@@ -4,6 +4,8 @@ from django.core.validators import validate_email
 from django.db import connection, transaction
 from rest_framework.exceptions import PermissionDenied
 
+from apps.notifications.services import send_welcome_email
+
 from . import clerk_admin
 from .clerk import ClerkClaims
 from .exceptions import (
@@ -27,7 +29,7 @@ def get_or_create_user_from_claims(claims: ClerkClaims) -> User:
     `get_or_create` es seguro ante peticiones simultáneas: si otra inserta primero,
     captura el IntegrityError y devuelve la fila existente.
     """
-    user, _ = User.objects.get_or_create(
+    user, created = User.objects.get_or_create(
         clerk_user_id=claims.sub,
         defaults={
             "email": claims.email,
@@ -35,6 +37,10 @@ def get_or_create_user_from_claims(claims: ClerkClaims) -> User:
             "last_name": claims.last_name,
         },
     )
+    if created and claims.role != clerk_admin.ADMIN_ROLE:
+        # Si el webhook `user.created` no llegó antes, la bienvenida sale aquí (HU-43). El
+        # registro de `notification_log` garantiza que no se envíe dos veces.
+        send_welcome_email(user)
     return user
 
 
@@ -54,14 +60,15 @@ def _profile_from_webhook(data: dict) -> dict:
 def _user_created(data: dict) -> None:
     if not data.get("id"):
         return
-    _, created = User.objects.get_or_create(
+    user, created = User.objects.get_or_create(
         clerk_user_id=data["id"], defaults=_profile_from_webhook(data)
     )
     is_admin = (data.get("public_metadata") or {}).get("role") == clerk_admin.ADMIN_ROLE
-    if created and not is_admin:
-        # TODO(HU-43): disparar aquí el correo de bienvenida. HU-12: no se envía a las cuentas
-        # con `public_metadata.role == "admin"` (llegan por invitación, no son clientes).
-        pass
+    # HU-12: las cuentas con `public_metadata.role == "admin"` llegan por invitación y no son
+    # clientes, así que no reciben la bienvenida. `created` no basta: si el usuario ya se creó
+    # en su primera petición, el registro de `notification_log` evita el duplicado.
+    if not is_admin:
+        send_welcome_email(user)
 
 
 def _user_updated(data: dict) -> None:
