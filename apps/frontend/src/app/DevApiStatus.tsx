@@ -11,7 +11,7 @@ interface Health {
 
 /** Solo desarrollo: muestra si la API responde y, con sesión, el resultado de `GET /me`. */
 export function DevApiStatus() {
-  const { isSignedIn } = useAuth();
+  const { isSignedIn, getToken } = useAuth();
   const health = useQuery({ queryKey: ["health"], queryFn: () => apiFetch<Health>("/health") });
   const me = useMe();
 
@@ -42,6 +42,21 @@ export function DevApiStatus() {
       {isSignedIn && me.isPending && <p>Consultando…</p>}
       {me.isError && <p role="alert">Error: {me.error.message}</p>}
       {me.data && <pre className="overflow-x-auto">{JSON.stringify(me.data, null, 2)}</pre>}
+      {isSignedIn && (
+        <button
+          type="button"
+          onClick={async () => {
+            const token = await getToken();
+            if (token) {
+              await navigator.clipboard.writeText(token);
+              alert("Token copiado al portapapeles. Pégalo en el botón 'Authorize' de Swagger.");
+            }
+          }}
+          className="mt-2 rounded bg-black px-3 py-1.5 text-xs text-white hover:bg-gray-800"
+        >
+          Copiar token para Swagger UI
+        </button>
+      )}
     </section>
   );
 }

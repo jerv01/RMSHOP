@@ -31,3 +31,8 @@ Thumbs.db
 # Estáticos generados por collectstatic
 apps/backend/staticfiles/*
 !apps/backend/staticfiles/.gitkeep
+
+# Medios subidos localmente
+apps/backend/media/*
+!apps/backend/media/.gitkeep
+

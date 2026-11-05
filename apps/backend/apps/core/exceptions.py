@@ -2,7 +2,12 @@
 
 import logging
 
-from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
+from django.core.exceptions import (
+    PermissionDenied as DjangoPermissionDenied,
+)
+from django.core.exceptions import (
+    ValidationError as DjangoValidationError,
+)
 from django.http import Http404
 from rest_framework import exceptions, status
 from rest_framework.response import Response
@@ -57,6 +62,9 @@ def api_exception_handler(exc, context):
         exc = exceptions.NotFound()
     elif isinstance(exc, DjangoPermissionDenied):
         exc = exceptions.PermissionDenied()
+    elif isinstance(exc, DjangoValidationError):
+        detail = exc.message_dict if hasattr(exc, "message_dict") else exc.messages
+        exc = exceptions.ValidationError(detail=detail)
 
     if not isinstance(exc, exceptions.APIException):
         # Error inesperado: se registra con el detalle técnico y al usuario no se le muestra.
