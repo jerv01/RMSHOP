@@ -3,7 +3,14 @@ import { Link, useSearchParams } from "react-router";
 import { useMutation } from "@tanstack/react-query";
 import { useApi } from "@/shared/api/useApi";
 import { ErrorNotice, QueryFeedback, SuccessNotice } from "@/shared/ui/Feedback";
-import { useAdminRefresh, useMovements, useProduct, useVariants } from "../products/api";
+import {
+  useAdminProducts,
+  useAdminRefresh,
+  useMovements,
+  useProduct,
+  useVariants,
+} from "../products/api";
+import { statusLabels } from "../products/config";
 import { ProductLookup } from "../products/ProductLookup";
 import type { StockMovement, Variant } from "../products/types";
 
@@ -17,6 +24,9 @@ export function InventoryPage() {
   const rawId = search.get("producto");
   const id = Number(rawId);
   const valid = Number.isSafeInteger(id) && id > 0;
+  const adminProducts = useAdminProducts(!valid);
+  const productList = Array.isArray(adminProducts.data) ? adminProducts.data : [];
+
   return (
     <div className="space-y-7">
       <div>
@@ -29,10 +39,25 @@ export function InventoryPage() {
       <section className="panel space-y-4">
         <h2>Seleccionar producto</h2>
         <ProductLookup onSelect={(value) => setSearch({ producto: String(value) })} />
-        <p className="muted text-sm">
-          La consulta global de inventario está pendiente. Usa el ID obtenido al crear o consultar
-          el producto.
-        </p>
+        {!valid && productList.length > 0 && (
+          <div className="space-y-2 pt-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted">
+              O elige un producto del catálogo:
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {productList.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setSearch({ producto: String(item.id) })}
+                  className="btn-secondary text-xs"
+                >
+                  #{item.id} · {item.name} ({statusLabels[item.status]})
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
       {rawId && !valid && (
         <p role="alert" className="field-error">

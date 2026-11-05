@@ -2,11 +2,13 @@ from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.catalog.models import Product
+from apps.catalog.models import Category, Product, ProductStatus
 from apps.catalog.serializers import (
+    CategorySerializer,
     ProductCreateSerializer,
     ProductDetailSerializer,
     ProductImageReorderSerializer,
@@ -16,6 +18,7 @@ from apps.catalog.serializers import (
     ProductVariantBulkCreateSerializer,
     ProductVariantCreateSerializer,
     ProductVariantSerializer,
+    PublicProductSerializer,
 )
 from apps.catalog.services import (
     bulk_create_variants,
@@ -32,12 +35,23 @@ from apps.users.permissions import IsRMAdmin
 
 
 class AdminProductCreateView(APIView):
-    """Crea un nuevo producto en el catálogo en estado borrador.
+    """Lista todos los productos o crea un nuevo producto en estado borrador.
 
-    Acceso exclusivo para administradores (HU-33).
+    Acceso exclusivo para administradores (HU-33, HU-34).
     """
 
     permission_classes = [IsRMAdmin]
+
+    @extend_schema(
+        summary="Listar todos los productos para administración",
+        description=(
+            "Retorna todos los productos del catálogo (borradores, publicados y archivados)."
+        ),
+        responses={200: ProductDetailSerializer(many=True)},
+    )
+    def get(self, request):
+        products = Product.objects.select_related("category").order_by("-created_at", "-id")
+        return Response(ProductDetailSerializer(products, many=True).data)
 
     @extend_schema(
         summary="Crear producto en catálogo",
@@ -303,3 +317,65 @@ class AdminProductVariantDetailView(APIView):
         get_object_or_404(Product, pk=product_id)
         delete_product_variant(product_id=product_id, variant_id=variant_id)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+def _published_products_queryset():
+    """Retorna únicamente productos publicados que tienen al menos una variante (HU-1)."""
+    return (
+        Product.objects.filter(
+            status=ProductStatus.PUBLISHED,
+            variants__isnull=False,
+        )
+        .select_related("category")
+        .prefetch_related("images", "variants")
+        .distinct()
+        .order_by("-created_at", "-id")
+    )
+
+
+class PublicCategoryListView(APIView):
+    """Lista las categorías públicas del catálogo (HU-2)."""
+
+    authentication_classes: list = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        summary="Listar categorías del catálogo",
+        responses={200: CategorySerializer(many=True)},
+    )
+    def get(self, request):
+        categories = Category.objects.order_by("id")
+        return Response(CategorySerializer(categories, many=True).data)
+
+
+class PublicProductListView(APIView):
+    """Lista las prendas publicadas del catálogo sin requerir sesión (HU-1, HU-2)."""
+
+    authentication_classes: list = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        summary="Listar productos publicados del catálogo",
+        responses={200: PublicProductSerializer(many=True)},
+    )
+    def get(self, request):
+        queryset = _published_products_queryset()
+        category_slug = (request.query_params.get("category") or "").strip()
+        if category_slug:
+            queryset = queryset.filter(category__slug=category_slug)
+        return Response(PublicProductSerializer(queryset, many=True).data)
+
+
+class PublicProductDetailView(APIView):
+    """Obtiene la ficha de detalle de una prenda publicada por su slug (HU-3)."""
+
+    authentication_classes: list = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        summary="Obtener detalle público de una prenda por slug",
+        responses={200: PublicProductSerializer},
+    )
+    def get(self, request, slug: str):
+        product = get_object_or_404(_published_products_queryset(), slug=slug)
+        return Response(PublicProductSerializer(product).data)

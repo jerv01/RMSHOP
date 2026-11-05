@@ -9,9 +9,18 @@ from apps.catalog.views import (
     AdminProductVariantBulkCreateView,
     AdminProductVariantDetailView,
     AdminProductVariantListCreateView,
+    PublicCategoryListView,
+    PublicProductDetailView,
+    PublicProductListView,
 )
 
 urlpatterns = [
+    path("categories", PublicCategoryListView.as_view(), name="public-category-list"),
+    path("categories/", PublicCategoryListView.as_view()),
+    path("products", PublicProductListView.as_view(), name="public-product-list"),
+    path("products/", PublicProductListView.as_view()),
+    path("products/<slug:slug>", PublicProductDetailView.as_view(), name="public-product-detail"),
+    path("products/<slug:slug>/", PublicProductDetailView.as_view()),
     path("admin/products", AdminProductCreateView.as_view(), name="admin-product-create"),
     path(
         "admin/products/<int:pk>",

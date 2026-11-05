@@ -145,3 +145,34 @@ class ProductVariantBulkCreateSerializer(serializers.Serializer):
         child=serializers.CharField(max_length=20),
         min_length=1,
     )
+
+
+class PublicProductSerializer(serializers.ModelSerializer):
+    """Producto publicado para el catálogo público y su ficha de detalle (HU-1, HU-2, HU-3)."""
+
+    category = CategorySerializer(read_only=True)
+    images = ProductImageSerializer(many=True, read_only=True)
+    variants = ProductVariantSerializer(many=True, read_only=True)
+    in_stock = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Product
+        fields = [
+            "id",
+            "name",
+            "slug",
+            "description",
+            "price",
+            "previous_price",
+            "material",
+            "category",
+            "status",
+            "images",
+            "variants",
+            "in_stock",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_in_stock(self, obj: Product) -> bool:
+        return any(variant.stock_quantity > 0 for variant in obj.variants.all())

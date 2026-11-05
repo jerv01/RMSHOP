@@ -18,6 +18,8 @@ export function useAdminRefresh() {
   return () => client.invalidateQueries({ queryKey: ["admin", userId] });
 }
 export const productPath = (id: number) => `/admin/products/${id}`;
+export const useAdminProducts = (enabled = true) =>
+  useAdminQuery<Product[]>("/admin/products", enabled);
 export const useProduct = (id: number) => useAdminQuery<Product>(productPath(id), id > 0);
 export const useImages = (id: number) =>
   useAdminQuery<ProductImage[]>(`${productPath(id)}/images`, id > 0);

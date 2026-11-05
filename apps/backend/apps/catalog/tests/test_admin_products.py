@@ -315,6 +315,35 @@ def test_product_detail_not_found(admin_client):
 
 
 @pytest.mark.django_db
+def test_admin_list_all_products(admin_client):
+    category = Category.objects.get(slug="camisetas-tops")
+    Product.objects.create(
+        name="Prenda Borrador",
+        slug="prenda-borrador",
+        description="Desc",
+        price=Decimal("50000"),
+        material="Algodón",
+        category=category,
+        status=ProductStatus.DRAFT,
+    )
+    Product.objects.create(
+        name="Prenda Publicada",
+        slug="prenda-publicada",
+        description="Desc",
+        price=Decimal("70000"),
+        material="Algodón",
+        category=category,
+        status=ProductStatus.PUBLISHED,
+    )
+
+    response = admin_client.get(URL)
+    assert response.status_code == status.HTTP_200_OK
+    items = response.json()
+    assert len(items) == 2
+    assert {item["slug"] for item in items} == {"prenda-borrador", "prenda-publicada"}
+
+
+@pytest.mark.django_db
 def test_customer_cannot_update_or_delete_product(customer_client):
     category = Category.objects.get(slug="camisetas-tops")
     product = Product.objects.create(
