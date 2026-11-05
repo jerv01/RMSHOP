@@ -10,7 +10,7 @@ RM Shop es una plataforma web que centraliza el catálogo de la marca de ropa RM
 
 * **Visitante sin cuenta:** persona que navega el sitio y el catálogo sin registrarse; no puede agregar al carrito ni usar el chatbot.  
 * **Cliente registrado:** persona con cuenta verificada que agrega productos al carrito, paga, sigue sus pedidos y usa el chatbot; no cambia estados directamente.  
-* **Administrador:** una de máximo 3 personas (incluida la propietaria Libia Palacios), con permisos idénticos y cuenta separada, que gestiona productos, inventario, descuentos, pedidos y analítica.
+* **Administrador:** una persona (incluida la propietaria Libia Palacios), sin límite de cantidad, con permisos idénticos y cuenta separada, que gestiona productos, inventario, descuentos, pedidos y analítica.
 
 ## **2\. Backlog con Criterios de Aceptación**
 
@@ -254,22 +254,24 @@ RM Shop es una plataforma web que centraliza el catálogo de la marca de ropa RM
 **HU-12** \[SIN-IA\]
 
 * Actor(es): Administrador  
-* Descripción: Como Administrador, quiero que el sistema limite a 3 las cuentas de administrador con permisos idénticos, para mantener el control del acceso al panel.  
+* Descripción: Como Administrador, quiero registrar, consultar y eliminar cuentas de administrador, para compartir la gestión de la tienda y controlar quién tiene acceso al panel administrativo.  
 * Detalles de la HU:  
-  * Tareas funcionales: impedir crear más de 3 cuentas de administrador; asegurar permisos idénticos.  
-  * Entrada: intento de crear una cuenta de administrador \| Proceso: se cuenta las cuentas existentes \| Salida: cuenta creada o rechazo.  
-  * Flujo de interfaz (texto): al agregar un administrador, si ya hay 3, se muestra "Límite de administradores alcanzado".  
-  * Reglas de negocio y datos: máximo 3, incluida Libia Palacios. El mecanismo para crear o dar de baja administradores no está definido (P-4).  
+* Tareas funcionales: registrar cuentas de administrador a partir de un correo; rechazar correos que ya pertenecen a una cuenta de cliente; listar los administradores registrados; eliminar cuentas de administrador.  
+* Entrada: correo a registrar o cuenta de administrador a eliminar \| Proceso: se valida que quien solicita sea administrador, que el correo no pertenezca a un cliente ni sea ya administrador, y se aplica el alta o la baja \| Salida: cuenta registrada, invitación enviada, cuenta eliminada o mensaje de rechazo.  
+* Flujo de interfaz (texto): el administrador abre la sección "Administradores" y ve la lista de cuentas. Para agregar, ingresa el correo y confirma; si el correo es de un cliente o ya es administrador, se muestra un mensaje de error claro. Para eliminar, selecciona la cuenta y confirma la acción.  
+* Reglas de negocio y datos: solo un administrador puede registrar o eliminar administradores. Una cuenta de cliente no puede ser administrador (HU-11). Los permisos de los administradores son idénticos y no hay límite de cantidad. No se puede eliminar la propia cuenta ni la última cuenta de administrador. \[SUPUESTO\] La primera cuenta de administrador se crea fuera de esta HU. \[SUPUESTO\]  
 * Restricciones (requerimientos no funcionales):  
-  * El límite se aplica en el 100 % de los intentos, incluso simultáneos.  
-  * Toda alta o baja de administrador queda registrada. \[SUPUESTO\]  
+* El registro y la eliminación de administradores se validan en el backend en el 100 % de los intentos, no solo en la interfaz.  
+* El rol de administrador se asigna únicamente desde el servidor, nunca desde datos que el cliente pueda modificar.  
+* Toda alta y baja de administrador queda registrada (quién, a quién y cuándo). \[SUPUESTO\]  
 * Criterios de aceptación:  
-  * AC-HU-12-1 (Camino feliz): Dadas 2 cuentas de administrador, cuando se crea una tercera, entonces se crea con los mismos permisos.  
-  * AC-HU-12-2 (Alternativo/Error): Dadas 3 cuentas, cuando se intenta crear una cuarta, entonces se rechaza con un mensaje claro.  
-  * AC-HU-12-3 (Caso límite): Dadas 3 cuentas y la baja de una, cuando se crea otra, entonces se permite. \[SUPUESTO\]  
+* AC-HU-12-1 (Camino feliz): Dado un administrador autenticado, cuando registra un correo válido que no pertenece a un cliente, entonces se crea o se invita la cuenta de administrador con los mismos permisos que los demás.  
+* AC-HU-12-2 (Alternativo/Error): Dado un correo que ya pertenece a una cuenta de cliente o que ya es administrador, cuando un administrador intenta registrarlo, entonces se rechaza con un mensaje claro y no se modifica ninguna cuenta.  
+* AC-HU-12-3 (Eliminación): Dado un administrador autenticado, cuando elimina otra cuenta de administrador, entonces esa cuenta pierde el acceso al panel.  
+* AC-HU-12-4 (Caso límite): Dado el último administrador existente o la propia cuenta del solicitante, cuando se intenta eliminar, entonces se rechaza con un mensaje claro. \[SUPUESTO\]  
+* AC-HU-12-5 (Seguridad): Dado un usuario sin rol de administrador (cliente o sin sesión), cuando intenta registrar o eliminar un administrador, entonces el sistema rechaza la operación.  
 * Dependencias: HU-11  
 * Pre-chequeo DoR: \[1\] Calidad: Sí \| \[2\] Criterios: Sí (con \[SUPUESTO\]) \| \[3\] Dependencias: Sí \| \[4-6\] Se evalúan en Etapa 3
-
 ---
 
 ### **ÉPICA 3: Carrito de Compras (CART)**

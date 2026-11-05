@@ -9,3 +9,11 @@ class MeSerializer(serializers.Serializer):
     first_name = serializers.CharField()
     last_name = serializers.CharField()
     role = serializers.CharField(allow_null=True)
+
+
+class AdministratorSerializer(serializers.Serializer):
+    clerk_user_id = serializers.CharField()
+    email = serializers.CharField()
+    first_name = serializers.CharField(allow_blank=True)
+    last_name = serializers.CharField(allow_blank=True)
+    is_me = serializers.BooleanField()
