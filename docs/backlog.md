@@ -689,45 +689,45 @@ RM Shop es una plataforma web que centraliza el catálogo de la marca de ropa RM
 
 #### **Feature 7.1: Gestión de productos**
 
-**HU-33** \[SIN-IA\]
+**HU-33** \[SIN-IA\] \[BACKEND LISTO\]
 
 * Actor(es): Administrador  
 * Descripción: Como Administrador, quiero crear productos con nombre, descripción, precio, precio anterior, material y categoría, para publicarlos en el catálogo.  
 * Detalles de la HU:  
   * Tareas funcionales: formulario de alta; asignar categoría; publicar.  
-  * Entrada: nombre, descripción, precio, precio anterior (opcional), material, categoría \| Proceso: validación y creación \| Salida: producto creado.  
+  * Entrada: nombre, descripción, precio, precio anterior (opcional), material, categoría \| Proceso: validación y creación \| Salida: producto creado en borrador (`draft`).  
   * Flujo de interfaz (texto): el administrador abre "Nuevo producto", completa el formulario y guarda; ve confirmación.  
-  * Reglas de negocio y datos: categoría entre las 4 iniciales; precio en COP; catálogo de menos de 30 productos. Si el producto se crea publicado o en borrador, no está definido (P-15).  
+  * Reglas de negocio y datos: categoría entre las 4 iniciales; precio en COP; catálogo de menos de 30 productos. Resuelto P-15: se crea en borrador (`draft`); si el catálogo alcanza o supera los 30 productos, se retorna advertencia informativa sin bloquear la creación.  
 * Restricciones (requerimientos no funcionales):  
   * El guardado responde en 3 segundos o menos.  
-  * Solo administradores crean productos.  
+  * Solo administradores crean productos (`IsRMAdmin`).  
 * Criterios de aceptación:  
-  * AC-HU-33-1 (Camino feliz): Dados los datos obligatorios, cuando el administrador guarda, entonces el producto queda creado.  
-  * AC-HU-33-2 (Alternativo/Error): Dado un precio vacío, negativo o no numérico, cuando guarda, entonces se rechaza con un mensaje de error.  
-  * AC-HU-33-3 (Caso límite): Dado un catálogo de 30 productos, cuando se intenta crear otro, entonces se permite o se advierte según la regla definida. \[SUPUESTO\]  
+  * AC-HU-33-1 (Camino feliz): Dados los datos obligatorios, cuando el administrador guarda, entonces el producto queda creado con estado borrador.  
+  * AC-HU-33-2 (Alternativo/Error): Dado un precio vacío, negativo o no numérico, cuando guarda, entonces se rechaza con un mensaje de error y formato unificado.  
+  * AC-HU-33-3 (Caso límite): Dado un catálogo de 30 o más productos, cuando se intenta crear otro, entonces se permite la creación y se retorna advertencia informativa en `warning`.  
 * Dependencias: HU-11  
-* Pre-chequeo DoR: \[1\] Calidad: Sí \| \[2\] Criterios: Sí (con \[SUPUESTO\]) \| \[3\] Dependencias: Sí \| \[4-6\] Se evalúan en Etapa 3
+* Pre-chequeo DoR: \[1\] Calidad: Sí \| \[2\] Criterios: Sí \| \[3\] Dependencias: Sí \| \[4-6\] Backend implementado y verificado con pruebas automatizadas (Frontend pendiente)
 
-**HU-34** \[SIN-IA\]
+**HU-34** \[SIN-IA\] \[BACKEND LISTO\]
 
 * Actor(es): Administrador  
 * Descripción: Como Administrador, quiero editar y eliminar productos existentes, para mantener el catálogo actualizado.  
 * Detalles de la HU:  
   * Tareas funcionales: editar atributos; eliminar productos con confirmación.  
-  * Entrada: producto y cambios \| Proceso: validación y actualización o eliminación \| Salida: producto actualizado o eliminado.  
+  * Entrada: producto y cambios \| Proceso: validación y actualización o eliminación \| Salida: producto actualizado o archivado (`archived`).  
   * Flujo de interfaz (texto): el administrador abre un producto, edita y guarda, o pulsa "Eliminar" y confirma.  
-  * Reglas de negocio y datos: el tratamiento de productos con pedidos o reservas existentes no está definido (P-15).  
+  * Reglas de negocio y datos: resuelto P-15: la eliminación se realiza mediante archivado lógico (`status='archived'`), manteniendo intacta la integridad referencial de pedidos y carritos existentes.  
 * Restricciones (requerimientos no funcionales):  
   * Los cambios se reflejan en el catálogo en 5 segundos o menos.  
   * Se exige confirmación antes de eliminar.  
 * Criterios de aceptación:  
   * AC-HU-34-1 (Camino feliz): Dado un producto existente, cuando el administrador cambia el precio y guarda, entonces el catálogo muestra el nuevo precio.  
-  * AC-HU-34-2 (Alternativo/Error): Dados datos inválidos, cuando guarda, entonces se rechaza con un mensaje.  
-  * AC-HU-34-3 (Caso límite): Dado un producto en carritos o pedidos existentes, cuando se elimina, entonces el sistema aplica la regla definida sin dejar pedidos inconsistentes. \[SUPUESTO\]  
+  * AC-HU-34-2 (Alternativo/Error): Dados datos inválidos, cuando guarda, entonces se rechaza con un mensaje de error y formato unificado.  
+  * AC-HU-34-3 (Caso límite): Dado un producto en carritos o pedidos existentes, cuando se elimina, el sistema aplica borrado lógico (`archived`) sin dejar pedidos inconsistentes ni corromper llaves foráneas.  
 * Dependencias: HU-33  
-* Pre-chequeo DoR: \[1\] Calidad: Sí \| \[2\] Criterios: Sí (con \[SUPUESTO\]) \| \[3\] Dependencias: Sí \| \[4-6\] Se evalúan en Etapa 3
+* Pre-chequeo DoR: \[1\] Calidad: Sí \| \[2\] Criterios: Sí \| \[3\] Dependencias: Sí \| \[4-6\] Backend implementado y verificado con pruebas automatizadas (Frontend pendiente)
 
-**HU-35** \[SIN-IA\]
+**HU-35** \[SIN-IA\] \[BACKEND LISTO\]
 
 * Actor(es): Administrador  
 * Descripción: Como Administrador, quiero cargar fotografías de cada producto, para mostrar las prendas a los clientes.  
@@ -735,18 +735,18 @@ RM Shop es una plataforma web que centraliza el catálogo de la marca de ropa RM
   * Tareas funcionales: subir, ordenar y eliminar fotografías; asociar texto alternativo.  
   * Entrada: archivos de imagen y texto alternativo \| Proceso: validación de formato y tamaño; almacenamiento \| Salida: fotos visibles en la ficha.  
   * Flujo de interfaz (texto): en el producto, el administrador pulsa "Subir fotos", elige archivos, escribe el texto alternativo y guarda.  
-  * Reglas de negocio y datos: cantidad máxima, formatos y peso no definidos (P-15). Cada imagen requiere texto alternativo (HU-61).  
+  * Reglas de negocio y datos: límite de 3 fotografías por producto (posiciones 1 a 3). Formatos permitidos: JPG, PNG y WebP hasta 5 MB. Conversión en memoria a WebP (máx 1600 px en lado mayor, calidad 85 con Pillow). Eliminación física del archivo en storage y recompactación secuencial de posiciones. Cada imagen requiere `alt_text` con fallback al nombre de la prenda para accesibilidad (HU-61). Endpoints REST protegidos con `IsRMAdmin` y documentados en Swagger UI (`/api/v1/docs/`).  
 * Restricciones (requerimientos no funcionales):  
   * La carga de una imagen termina en 10 segundos o menos con conexión estándar. \[SUPUESTO\]  
   * Las imágenes se muestran en celular sin desbordar la pantalla.  
 * Criterios de aceptación:  
-  * AC-HU-35-1 (Camino feliz): Dado un archivo de imagen válido, cuando el administrador lo sube, entonces aparece en la ficha del producto.  
-  * AC-HU-35-2 (Alternativo/Error): Dado un archivo que no es imagen o es demasiado pesado, cuando se sube, entonces se rechaza con un mensaje.  
-  * AC-HU-35-3 (Caso límite): Dado el máximo de fotos alcanzado, cuando se intenta subir otra, entonces se avisa del límite. \[SUPUESTO\]  
+  * AC-HU-35-1 (Camino feliz): Dado un archivo de imagen válido, cuando el administrador lo sube, entonces aparece en la ficha del producto (convertido a WebP).  
+  * AC-HU-35-2 (Alternativo/Error): Dado un archivo que no es imagen o es demasiado pesado (\> 5 MB), cuando se sube, entonces se rechaza con un mensaje.  
+  * AC-HU-35-3 (Caso límite): Dado el máximo de 3 fotos alcanzado, cuando se intenta subir otra, entonces se avisa del límite (400 Bad Request).  
 * Dependencias: HU-33  
-* Pre-chequeo DoR: \[1\] Calidad: Sí \| \[2\] Criterios: Sí (con \[SUPUESTO\]) \| \[3\] Dependencias: Sí \| \[4-6\] Se evalúan en Etapa 3
+* Pre-chequeo DoR: \[1\] Calidad: Sí \| \[2\] Criterios: Sí \| \[3\] Dependencias: Sí \| \[4-6\] Backend implementado y verificado con pruebas automatizadas (Frontend pendiente)
 
-**HU-36** \[SIN-IA\]
+**HU-36** \[SIN-IA\] \[BACKEND LISTO\]
 
 * Actor(es): Administrador  
 * Descripción: Como Administrador, quiero definir los colores y tallas de cada diseño, para ofrecer sus variantes.  
@@ -754,20 +754,20 @@ RM Shop es una plataforma web que centraliza el catálogo de la marca de ropa RM
   * Tareas funcionales: agregar o quitar colores y tallas de un diseño; generar las combinaciones.  
   * Entrada: colores y tallas \| Proceso: se crean las combinaciones diseño/talla/color \| Salida: variantes disponibles para stock.  
   * Flujo de interfaz (texto): en el diseño, el administrador agrega colores y tallas y ve la lista de combinaciones.  
-  * Reglas de negocio y datos: un diseño tiene múltiples colores y tallas. La lista oficial de tallas y colores no está definida (P-15).  
+  * Reglas de negocio y datos: un diseño tiene múltiples variantes de color y talla sin duplicados (`unique(product, color, size)`). Se normalizan colores (Title Case) y tallas (Uppercase). Soporta creación individual y generación masiva (bulk). Se prohíbe eliminar variantes que posean stock (>0) o reservas activas para proteger la consistencia de inventario (AC-HU-36-3). Endpoints REST protegidos con `IsRMAdmin` y documentados en Swagger UI (`/api/v1/docs/`).  
 * Restricciones (requerimientos no funcionales):  
   * No pueden existir combinaciones duplicadas.  
   * El guardado responde en 3 segundos o menos.  
 * Criterios de aceptación:  
   * AC-HU-36-1 (Camino feliz): Dado un diseño, cuando el administrador agrega "Negro" y "M", entonces se crea esa combinación.  
-  * AC-HU-36-2 (Alternativo/Error): Dada una combinación ya existente, cuando se intenta duplicar, entonces se rechaza.  
-  * AC-HU-36-3 (Caso límite): Dada una combinación con stock o reservas, cuando se intenta quitar, entonces se advierte o se bloquea. \[SUPUESTO\]  
+  * AC-HU-36-2 (Alternativo/Error): Dada una combinación ya existente, cuando se intenta duplicar, entonces se rechaza con error de validación (400 Bad Request).  
+  * AC-HU-36-3 (Caso límite): Dada una combinación con stock (>0) o reservas, cuando se intenta quitar, entonces se bloquea la eliminación informando al administrador (400 Bad Request).  
 * Dependencias: HU-33  
-* Pre-chequeo DoR: \[1\] Calidad: Sí \| \[2\] Criterios: Sí (con \[SUPUESTO\]) \| \[3\] Dependencias: Sí \| \[4-6\] Se evalúan en Etapa 3
+* Pre-chequeo DoR: \[1\] Calidad: Sí \| \[2\] Criterios: Sí \| \[3\] Dependencias: Sí \| \[4-6\] Backend implementado y verificado con pruebas automatizadas (Frontend pendiente)
 
 #### **Feature 7.2: Gestión de inventario**
 
-**HU-37** \[SIN-IA\]
+**HU-37** \[SIN-IA\] [BACKEND LISTO]
 
 * Actor(es): Administrador  
 * Descripción: Como Administrador, quiero registrar y aumentar manualmente el stock de cada combinación de diseño, talla y color, para reflejar las existencias reales.  
@@ -784,7 +784,7 @@ RM Shop es una plataforma web que centraliza el catálogo de la marca de ropa RM
   * AC-HU-37-2 (Alternativo/Error): Dada una cantidad no numérica o negativa, cuando se guarda, entonces se rechaza.  
   * AC-HU-37-3 (Caso límite): Dada una combinación agotada, cuando se aumenta el stock, entonces deja de mostrar "Agotado".  
 * Dependencias: HU-36  
-* Pre-chequeo DoR: \[1\] Calidad: Sí \| \[2\] Criterios: Sí \| \[3\] Dependencias: Sí \| \[4-6\] Se evalúan en Etapa 3
+* Pre-chequeo DoR: \[1\] Calidad: Sí \| \[2\] Criterios: Sí \| \[3\] Dependencias: Sí \| \[4-6\] Backend implementado y verificado con 20 pruebas automatizadas en apps.inventory (Frontend pendiente)
 
 **HU-38** \[SIN-IA\]
 

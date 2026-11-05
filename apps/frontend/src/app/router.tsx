@@ -4,6 +4,7 @@ import { AdminSignUpPage } from "@/features/auth/AdminSignUpPage";
 import { RequireAdmin } from "@/features/auth/RequireAdmin";
 import { SignInPage } from "@/features/auth/SignInPage";
 import { SignUpPage } from "@/features/auth/SignUpPage";
+import { ProductDetailPage } from "@/features/catalog/ProductDetailPage";
 import { DataPolicyPage } from "@/features/legal/DataPolicyPage";
 import { AdminLayout } from "./layouts/AdminLayout";
 import { StoreLayout } from "./layouts/StoreLayout";
@@ -15,6 +16,8 @@ export const router = createBrowserRouter([
     element: <StoreLayout />,
     children: [
       { path: "/", element: <HomePage /> },
+      { path: "/categoria/:slug", element: <HomePage /> },
+      { path: "/producto/:slug", element: <ProductDetailPage /> },
       { path: "/ingresar/*", element: <SignInPage /> },
       { path: "/login/*", element: <Navigate to="/ingresar" replace /> },
       { path: "/registro/*", element: <SignUpPage /> },
@@ -32,6 +35,20 @@ export const router = createBrowserRouter([
         element: <RequireAdmin />,
         children: [
           { path: "/admin", element: <Navigate to="/admin/productos" replace /> },
+          {
+            path: "/admin/productos/nuevo",
+            lazy: async () => ({
+              Component: (await import("@/features/admin/products/ProductCreatePage"))
+                .ProductCreatePage,
+            }),
+          },
+          {
+            path: "/admin/productos/:id",
+            lazy: async () => ({
+              Component: (await import("@/features/admin/products/ProductEditPage"))
+                .ProductEditPage,
+            }),
+          },
           {
             path: "/admin/productos",
             lazy: async () => ({

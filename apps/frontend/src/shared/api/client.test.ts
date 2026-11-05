@@ -54,6 +54,26 @@ describe("ApiError.fromResponse", () => {
 });
 
 describe("apiFetch", () => {
+  it("envía FormData con token sin fijar Content-Type", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: 1 }, 201));
+    vi.stubGlobal("fetch", fetchMock);
+    const formData = new FormData();
+    formData.append("image", new File(["x"], "photo.jpg", { type: "image/jpeg" }));
+    await apiFetch("/admin/products/1/images", {
+      method: "POST",
+      formData,
+      getToken: async () => "admin-token",
+      headers: { "Content-Type": "application/json" },
+    });
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.body).toBe(formData);
+    expect(new Headers(init.headers).has("Content-Type")).toBe(false);
+    expect(new Headers(init.headers).get("Authorization")).toBe("Bearer admin-token");
+  });
+  it("acepta DELETE sin contenido", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 204 })));
+    expect(await apiFetch("/admin/products/1", { method: "DELETE" })).toBeUndefined();
+  });
   it("antepone la URL de la API y agrega el token Bearer", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ status: "ok" }, 200));
     vi.stubGlobal("fetch", fetchMock);
