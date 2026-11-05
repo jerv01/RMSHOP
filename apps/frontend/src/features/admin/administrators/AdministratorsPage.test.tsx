@@ -95,6 +95,7 @@ describe("AdministratorsPage", () => {
     expect(within(rows[1]).getByText("Tú")).toBeInTheDocument();
     expect(within(rows[2]).getByText("otra@rmshop.test")).toBeInTheDocument();
     expect(within(rows[2]).queryByText("Tú")).not.toBeInTheDocument();
+    expect(screen.getByText("2 administradores activos")).toBeInTheDocument();
     const headers = fetchMock.mock.calls[0][1].headers as Headers;
     expect(headers.get("Authorization")).toBe("Bearer token-simulado");
   });

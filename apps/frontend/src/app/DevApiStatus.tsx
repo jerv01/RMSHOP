@@ -18,30 +18,42 @@ export function DevApiStatus() {
   return (
     <section
       aria-label="Estado de la API"
-      className="mt-6 rounded border border-gray-300 p-4 text-sm"
+      className="mt-6 rounded-[2px] border border-border bg-surface-alt p-5 text-sm shadow-(--shadow-soft)"
     >
-      <h2 className="font-semibold">Estado de la API (solo desarrollo)</h2>
-      {health.isPending && <p>Consultando…</p>}
-      {health.isError && <p role="alert">Error: {health.error.message}</p>}
+      <h2 className="font-semibold text-foreground">Estado de la API (solo desarrollo)</h2>
+      {health.isPending && <p className="mt-1 text-muted">Consultando…</p>}
+      {health.isError && (
+        <p role="alert" className="mt-1 font-medium text-accent-sale">
+          Error: {health.error.message}
+        </p>
+      )}
       {health.data && (
-        <p>
+        <p className="mt-1 font-medium text-accent-success">
           API: {health.data.status} · Base de datos: {health.data.database}
         </p>
       )}
 
-      <h3 className="mt-3 font-semibold">GET /me</h3>
+      <h3 className="mt-4 font-semibold text-foreground">GET /me</h3>
       {!isSignedIn && (
-        <p>
+        <p className="mt-1 text-muted">
           Sin sesión.{" "}
-          <Link to="/ingresar" className="underline">
+          <Link to="/ingresar" className="font-semibold text-foreground underline">
             Inicia sesión
           </Link>{" "}
           para probarlo.
         </p>
       )}
-      {isSignedIn && me.isPending && <p>Consultando…</p>}
-      {me.isError && <p role="alert">Error: {me.error.message}</p>}
-      {me.data && <pre className="overflow-x-auto">{JSON.stringify(me.data, null, 2)}</pre>}
+      {isSignedIn && me.isPending && <p className="mt-1 text-muted">Consultando…</p>}
+      {me.isError && (
+        <p role="alert" className="mt-1 font-medium text-accent-sale">
+          Error: {me.error.message}
+        </p>
+      )}
+      {me.data && (
+        <pre className="mt-2 overflow-x-auto rounded-[2px] border border-border bg-background p-3 font-mono text-xs text-foreground">
+          {JSON.stringify(me.data, null, 2)}
+        </pre>
+      )}
     </section>
   );
 }

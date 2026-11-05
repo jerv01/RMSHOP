@@ -34,36 +34,41 @@ export function InviteForm() {
   const error = errors.email?.message;
 
   return (
-    <form onSubmit={onSubmit} noValidate className="max-w-md">
-      <label htmlFor="admin-email" className="block font-medium">
+    <form onSubmit={onSubmit} noValidate className="max-w-lg">
+      <label htmlFor="admin-email" className="block text-sm font-semibold text-foreground">
         Correo del nuevo administrador
       </label>
-      <div className="mt-1 flex gap-2">
+      <div className="mt-1.5 flex flex-col gap-2 sm:flex-row">
         <input
           id="admin-email"
           type="email"
+          placeholder="correo@ejemplo.com"
           autoComplete="off"
           aria-invalid={error ? true : undefined}
           aria-describedby="admin-email-help admin-email-error"
-          className="min-w-0 flex-1 rounded border border-gray-600 px-3 py-2"
+          className="min-h-11 min-w-0 flex-1 rounded-[2px] border border-border-strong bg-background px-3.5 py-2 text-sm text-foreground placeholder:text-muted aria-[invalid=true]:border-accent-sale"
           {...register("email")}
         />
         <button
           type="submit"
           disabled={invite.isPending}
-          className="rounded bg-gray-900 px-4 py-2 text-white disabled:opacity-60"
+          className="inline-flex min-h-11 items-center justify-center rounded-[2px] bg-primary px-5 py-2 text-sm font-semibold uppercase tracking-wider text-primary-foreground transition-opacity hover:bg-foreground/90 disabled:opacity-60"
         >
           {invite.isPending ? "Enviando…" : "Agregar"}
         </button>
       </div>
-      <p id="admin-email-help" className="mt-1 text-sm text-gray-700">
+      <p id="admin-email-help" className="mt-1.5 text-xs text-muted">
         Enviaremos un enlace a este correo para que cree su cuenta de administrador.
       </p>
       {/* La región en vivo existe siempre: los lectores de pantalla anuncian el cambio. */}
-      <p id="admin-email-error" aria-live="polite" className="mt-1 min-h-5 text-sm text-red-700">
+      <p
+        id="admin-email-error"
+        aria-live="polite"
+        className="mt-1 min-h-5 text-sm font-medium text-accent-sale"
+      >
         {error}
       </p>
-      <p role="status" className="text-sm text-green-800">
+      <p role="status" className="text-sm font-semibold text-accent-success">
         {sentTo ? `Invitación enviada a ${sentTo}` : ""}
       </p>
     </form>

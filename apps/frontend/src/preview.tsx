@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { AdministratorsPage } from "@/features/admin/administrators/AdministratorsPage";
 import { env } from "@/shared/lib/env";
+import { BrandLogo } from "@/shared/ui/BrandLogo";
 import "./index.css";
 
 let admins = [
@@ -56,12 +57,14 @@ createRoot(document.getElementById("root")!).render(
     <ClerkProvider publishableKey={env.clerkPublishableKey}>
       <QueryClientProvider client={new QueryClient()}>
         <MemoryRouter>
-          <header className="border-b border-gray-200 p-4 text-lg font-semibold">
-            RM Shop · Panel de administración (vista previa)
-          </header>
-          <main className="p-4">
-            <AdministratorsPage />
-          </main>
+          <div className="min-h-screen bg-background text-foreground">
+            <header className="border-b border-border bg-background px-6 py-4">
+              <BrandLogo subtitle="Panel de administración (vista previa)" />
+            </header>
+            <main className="mx-auto max-w-6xl px-6 py-6">
+              <AdministratorsPage />
+            </main>
+          </div>
         </MemoryRouter>
       </QueryClientProvider>
     </ClerkProvider>
