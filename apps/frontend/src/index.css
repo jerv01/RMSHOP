@@ -1,1 +1,113 @@
 @import "tailwindcss";
+
+@theme {
+  --color-surface: #eceff1;
+  --color-canvas: #f5f5f5;
+  --color-border: #e0e0e0;
+  --color-ink: #000000;
+  --color-error: #e4002b;
+  --color-success: #1f7a5c;
+  --color-warning: #b26a00;
+  --color-error-text: #b00022;
+  --color-warning-text: #805000;
+}
+
+@layer components {
+  .admin-shell {
+    color: var(--color-ink);
+    background: #fff;
+  }
+  .admin-shell h1 {
+    @apply text-3xl font-semibold tracking-tight sm:text-4xl;
+  }
+  .admin-shell h2 {
+    @apply text-xl font-semibold tracking-tight;
+  }
+  .admin-shell h3 {
+    @apply font-semibold;
+  }
+  .page-heading {
+    @apply flex flex-wrap items-center justify-between gap-4;
+  }
+  .eyebrow {
+    @apply mb-2 text-xs uppercase tracking-widest text-gray-600;
+  }
+  .muted {
+    @apply text-gray-600;
+  }
+  .panel {
+    @apply rounded-lg border border-border bg-white p-5 sm:p-6;
+  }
+  .badge {
+    @apply inline-block rounded bg-surface px-3 py-1 text-xs font-medium;
+  }
+  .field {
+    @apply flex min-w-0 flex-col gap-2 text-sm font-medium;
+  }
+  .field input,
+  .field textarea,
+  .field select {
+    @apply min-h-11 w-full rounded border border-gray-400 bg-white px-3 py-2 text-base font-normal text-black;
+  }
+  .field input[type="file"] {
+    @apply text-sm;
+  }
+  .field [aria-invalid="true"] {
+    border-color: var(--color-error);
+  }
+  .field-error {
+    color: var(--color-error-text);
+    @apply text-sm font-normal;
+  }
+  .btn-primary,
+  .btn-secondary,
+  .btn-danger {
+    @apply inline-flex min-h-11 items-center justify-center rounded px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply bg-black text-white hover:bg-gray-800;
+  }
+  .btn-secondary {
+    @apply border border-gray-400 bg-white text-black hover:bg-surface;
+  }
+  .btn-danger {
+    @apply border border-border bg-white hover:bg-canvas;
+    color: var(--color-error-text);
+  }
+  .text-link {
+    @apply underline underline-offset-4;
+  }
+  .notice {
+    @apply rounded border border-border bg-canvas p-4 text-sm;
+    overflow-wrap: anywhere;
+  }
+  .notice-error {
+    color: var(--color-error-text);
+    border-color: var(--color-error);
+    background: #fff5f6;
+  }
+  .notice-success {
+    color: var(--color-success);
+    border-color: var(--color-success);
+    background: #f4faf7;
+  }
+  .notice-warning {
+    color: var(--color-warning-text);
+    border-color: var(--color-warning);
+    background: #fffbf0;
+  }
+  .admin-nav {
+    @apply flex min-h-11 items-center border-b-2 border-transparent pb-3 text-sm text-gray-600;
+  }
+  .admin-nav.active {
+    @apply border-black font-semibold text-black;
+  }
+  .admin-shell :is(a, button, input, textarea, select):focus-visible {
+    outline: 2px solid #000;
+    outline-offset: 3px;
+  }
+  .admin-shell button:not(:disabled),
+  .admin-shell select {
+    cursor: pointer;
+  }
+}

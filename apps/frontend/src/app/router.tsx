@@ -27,6 +27,20 @@ export const router = createBrowserRouter([
         element: <RequireAdmin />,
         children: [
           {
+            path: "/admin/productos/nuevo",
+            lazy: async () => ({
+              Component: (await import("@/features/admin/products/ProductCreatePage"))
+                .ProductCreatePage,
+            }),
+          },
+          {
+            path: "/admin/productos/:id",
+            lazy: async () => ({
+              Component: (await import("@/features/admin/products/ProductEditPage"))
+                .ProductEditPage,
+            }),
+          },
+          {
             path: "/admin/productos",
             lazy: async () => ({
               Component: (await import("@/features/admin/products/ProductsPage")).ProductsPage,

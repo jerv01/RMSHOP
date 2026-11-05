@@ -54,14 +54,19 @@ export interface RequestOptions extends Omit<RequestInit, "body"> {
   getToken?: TokenGetter;
   /** Se envía como JSON. */
   json?: unknown;
+  formData?: FormData;
 }
 
 /** Llama a `VITE_API_URL/api/v1<path>` y lanza `ApiError` si la respuesta no es exitosa. */
 export async function apiFetch<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { getToken, json, headers: extraHeaders, ...init } = options;
+  const { getToken, json, formData, headers: extraHeaders, ...init } = options;
+  if (json !== undefined && formData !== undefined) {
+    throw new Error("Envía JSON o FormData, no ambos.");
+  }
   const headers = new Headers(extraHeaders);
   headers.set("Accept", "application/json");
   if (json !== undefined) headers.set("Content-Type", "application/json");
+  if (formData !== undefined) headers.delete("Content-Type");
 
   const token = getToken ? await getToken() : null;
   if (token) headers.set("Authorization", `Bearer ${token}`);
@@ -71,7 +76,7 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
     response = await fetch(`${env.apiUrl}/api/v1${path}`, {
       ...init,
       headers,
-      body: json === undefined ? undefined : JSON.stringify(json),
+      body: formData ?? (json === undefined ? undefined : JSON.stringify(json)),
     });
   } catch {
     throw new ApiError(
