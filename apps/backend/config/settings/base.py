@@ -150,6 +150,9 @@ CLERK_WEBHOOK_SECRET = env("CLERK_WEBHOOK_SECRET", "")
 CLERK_AUTHORIZED_PARTIES = env_list("CLERK_AUTHORIZED_PARTIES")
 CLERK_JWT_KEY = env("CLERK_JWT_KEY", "")
 
+# URL pública del frontend; arma el enlace de las invitaciones de administrador (HU-12).
+FRONTEND_BASE_URL = env("FRONTEND_BASE_URL", "http://localhost:5173")
+
 # Correo
 EMAIL_HOST = env("EMAIL_HOST", "localhost")
 EMAIL_PORT = int(env("EMAIL_PORT", "25"))

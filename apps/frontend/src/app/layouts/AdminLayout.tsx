@@ -1,46 +1,68 @@
-import { useAuth } from "@clerk/react";
+import { useAuth, useUser } from "@clerk/react";
 import { Link, NavLink, Outlet } from "react-router";
-import { SessionControls } from "@/features/auth/SessionControls";
 import { ProductSessionProvider } from "@/features/admin/products/ProductSession";
+import { SessionControls } from "@/features/auth/SessionControls";
+import { BrandLogo } from "@/shared/ui/BrandLogo";
+
+const links = [
+  { to: "/admin/productos", label: "Productos" },
+  { to: "/admin/inventario", label: "Inventario" },
+  { to: "/admin/pedidos", label: "Pedidos" },
+  { to: "/admin/administradores", label: "Administradores" },
+];
 
 export function AdminLayout() {
-  const { userId, isSignedIn } = useAuth();
+  const { userId } = useAuth();
+  const { user } = useUser();
+  const isAdmin = user?.publicMetadata.role === "admin";
+
   return (
     <ProductSessionProvider key={userId ?? "anonymous"}>
-      <div className="admin-shell min-h-screen">
-        <header className="border-b border-border bg-white">
-          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-5 py-5">
-            <Link to="/admin/productos" className="text-xl font-semibold tracking-tight">
-              RM <span className="font-normal">Shop</span>
-              <span className="ml-3 text-xs font-normal uppercase tracking-widest muted">
-                Administración
-              </span>
-            </Link>
-            <div className="flex items-center gap-5">
-              <Link className="text-sm text-link" to="/">
+      <div className="admin-shell min-h-screen bg-background text-foreground">
+        <header className="border-b border-border bg-background">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-3 sm:px-6">
+            <div className="flex flex-wrap items-center gap-6">
+              <Link
+                to={isAdmin ? "/admin/productos" : "/admin/ingresar"}
+                className="inline-flex min-h-11 items-center rounded-[2px]"
+              >
+                <BrandLogo subtitle="Panel de administración" />
+              </Link>
+              {isAdmin && (
+                <nav aria-label="Panel de administración">
+                  <ul className="flex flex-wrap items-center gap-2 text-sm">
+                    {links.map((link) => (
+                      <li key={link.to}>
+                        <NavLink
+                          to={link.to}
+                          className={({ isActive }) =>
+                            `inline-flex min-h-11 items-center rounded-[2px] border px-3.5 py-2 font-medium transition-colors ${
+                              isActive
+                                ? "border-primary bg-primary text-primary-foreground"
+                                : "border-transparent text-foreground hover:bg-surface-alt"
+                            }`
+                          }
+                        >
+                          {link.label}
+                        </NavLink>
+                      </li>
+                    ))}
+                  </ul>
+                </nav>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Link
+                to="/"
+                className="inline-flex min-h-11 items-center px-2 text-sm font-medium text-foreground underline underline-offset-4 hover:text-muted"
+              >
                 Ver tienda
               </Link>
-              {isSignedIn && <SessionControls />}
+              {isAdmin && <SessionControls />}
             </div>
           </div>
-          {isSignedIn && (
-            <nav aria-label="Administración" className="mx-auto flex max-w-6xl gap-6 px-5">
-              <NavLink
-                className={({ isActive }) => `admin-nav ${isActive ? "active" : ""}`}
-                to="/admin/productos"
-              >
-                Productos
-              </NavLink>
-              <NavLink
-                className={({ isActive }) => `admin-nav ${isActive ? "active" : ""}`}
-                to="/admin/inventario"
-              >
-                Inventario
-              </NavLink>
-            </nav>
-          )}
         </header>
-        <main className="mx-auto max-w-6xl px-5 py-8 sm:py-12">
+        <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
           <Outlet />
         </main>
       </div>

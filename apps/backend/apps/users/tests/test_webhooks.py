@@ -85,15 +85,29 @@ def test_user_updated_creates_the_user_if_it_does_not_exist(api_client):
 
 
 @pytest.mark.django_db
-def test_user_deleted_removes_the_user_and_is_idempotent(api_client):
+def test_user_deleted_anonymizes_the_user_keeping_the_row_and_is_idempotent(api_client):
     UserFactory(clerk_user_id="user_1")
-    UserFactory(clerk_user_id="user_2")
+    UserFactory(clerk_user_id="user_2", email="otra@example.com")
 
     first = post_event(api_client, "user.deleted", {"id": "user_1", "deleted": True})
     second = post_event(api_client, "user.deleted", {"id": "user_1", "deleted": True})
 
     assert first.status_code == second.status_code == 200
-    assert list(User.objects.values_list("clerk_user_id", flat=True)) == ["user_2"]
+    # La fila se conserva (historial de movimientos y pedidos); solo se vacían los datos personales.
+    deleted = User.objects.get(clerk_user_id="user_1")
+    assert (deleted.email, deleted.first_name, deleted.last_name) == ("", "", "")
+    other = User.objects.get(clerk_user_id="user_2")
+    assert (other.email, other.first_name) == ("otra@example.com", "Ana")
+
+
+@pytest.mark.django_db
+def test_user_created_for_an_admin_creates_the_local_row(api_client):
+    # HU-12: a los administradores invitados no se les envía el correo de bienvenida de clientes
+    # (HU-43 aún no existe; el manejador omite el envío cuando `public_metadata.role == "admin"`).
+    response = post_event(api_client, "user.created", user_data(public_metadata={"role": "admin"}))
+
+    assert response.status_code == 200
+    assert User.objects.get().clerk_user_id == "user_1"
 
 
 @pytest.mark.django_db

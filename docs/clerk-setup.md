@@ -118,7 +118,7 @@ La URL del túnel cambia en cada sesión con ngrok gratuito, salvo que uses un d
 
 ## 7. Convertir un usuario en administrador (manual)
 
-Hasta que exista el comando de gestión de HU-11, el rol se asigna a mano. El administrador es un usuario distinto del cliente: crea una cuenta nueva para él (o usa una existente).
+**La primera cuenta de administrador siempre se marca a mano** (HU-12 la deja fuera de su alcance): no existe comando de gestión. Las demás se crean desde el panel, en `/admin/administradores` (sección 9). El administrador es un usuario distinto del cliente: crea una cuenta nueva para él.
 
 1. El usuario debe haberse registrado al menos una vez (por `/registro` o `/admin/ingresar`).
 2. En Clerk abre **Users** y selecciona al usuario.
@@ -139,7 +139,7 @@ Hasta que exista el comando de gestión de HU-11, el rol se asigna a mano. El ad
 
 4. Pide al usuario que cierre sesión y vuelva a entrar por `/admin/ingresar`. El frontend lee el rol de `publicMetadata.role` y la API lo lee del claim `role` del token (puede tardar hasta un minuto, ver el paso 3).
 
-Si el rol no es exactamente `admin`, el frontend muestra "No tienes permisos" y la API responde `403` en las rutas de administración. El límite de 3 administradores aún no se valida: llegará con HU-11.
+Si el rol no es exactamente `admin`, el frontend muestra "No tienes permisos" y la API responde `403` en las rutas de administración. No hay límite de cantidad de administradores.
 
 ## 8. Recomendación de equipo
 
@@ -148,9 +148,26 @@ Si el rol no es exactamente `admin`, el frontend muestra "No tienes permisos" y 
 - Las claves van solo en los archivos `.env`, que están en `.gitignore`. **Nunca** las subas a git. Si se filtra una clave, rótala en **API keys** y avisa al equipo.
 - La instancia de producción será otra, con sus propias claves (`pk_live_` y `sk_live_`), cuando llegue el despliegue.
 
+## 9. Invitar y eliminar administradores (HU-12)
+
+Un administrador abre `/admin/administradores`. Ahí agrega un correo, lista las cuentas y elimina a otros administradores.
+
+- **Variable nueva:** `FRONTEND_BASE_URL` en `apps/backend/.env` (por defecto `http://localhost:5173`, sin barra final). El backend arma con ella el `redirect_url` de la invitación: `<FRONTEND_BASE_URL>/admin/registro`. Si cambias el `.env`, ejecuta `docker compose up -d`.
+- **Cómo funciona:** el backend crea una invitación de Clerk con `public_metadata={"role": "admin"}`. La persona recibe un correo, abre el enlace, que lleva a `/admin/registro` con un `__clerk_ticket`, y crea su cuenta; Clerk copia la metadata al usuario. Después entra por `/admin/ingresar`. El rol nunca se asigna a una cuenta existente: un correo con cuenta en Clerk (cliente o administrador) se rechaza.
+- **Requisitos del panel de Clerk:** ninguno confirmado más allá de `CLERK_SECRET_KEY`. ⚠️ El correo de invitación lo envía Clerk con su plantilla; no lo confirmamos contra la documentación vigente, y en desarrollo debes revisar que llegue (y la carpeta de spam).
+- **Eliminar:** borra el usuario en Clerk. Su cuenta deja de existir y no puede volver a iniciar sesión. El token que ya emitió puede seguir siendo válido hasta ~60 s (paso 3); no es un error. Cualquier acción de gestión de administradores que intente con ese token se rechaza porque se comprueba el rol contra Clerk. El webhook `user.deleted` conserva la fila local con nombre y correo vaciados.
+- **Reglas:** no se puede eliminar la propia cuenta ni la última de administrador; toda invitación y baja queda en la tabla `admin_audit_log`.
+
+Puntos que no pudimos confirmar contra la documentación vigente de Clerk (1 de noviembre de 2026); verifícalos en la primera prueba real:
+
+- ⚠️ Que el correo de la persona invitada llegue ya verificado al completar el registro con el ticket. Si Clerk pidiera un código, se usa el flujo de verificación existente (HU-7/HU-8), sin cambios.
+- ⚠️ El error exacto que devuelve Clerk al crear una invitación para un correo que ya tiene una pendiente. El backend consulta las pendientes antes de crear y, si aun así Clerk responde un error `duplicate`, lo traduce a `invitation_pending`.
+- ⚠️ Que borrar el usuario cierre sus sesiones de inmediato; asumimos que el token vigente sigue válido hasta que vence (~60 s).
+- ⚠️ El máximo de 500 usuarios por página de `users.list` (el backend pagina con ese tamaño). `users.list` filtra por correo (`email_address`) pero no por metadata, por eso la lista de administradores recorre todos los usuarios.
+
 ## Redirecciones
 
-Al terminar el registro (después de verificar el correo con el código) y al iniciar sesión, el cliente vuelve a la página de la que venía (`redirect_url`) o, si no hay, al inicio (`/`). El panel de administración siempre termina en `/admin/productos`. Se configura con `fallbackRedirectUrl` en `SignUpPage.tsx` y `SignInPage.tsx`.
+Al terminar el registro (después de verificar el correo con el código) y al iniciar sesión, el cliente vuelve a la página de la que venía (`redirect_url`) o, si no hay, al inicio (`/`). El panel de administración siempre termina en `/admin/productos`, también tras aceptar una invitación (`AdminSignUpPage.tsx`). Se configura con `fallbackRedirectUrl` en `SignUpPage.tsx`, `SignInPage.tsx` y `AdminSignUpPage.tsx`.
 
 ## Comprobación
 

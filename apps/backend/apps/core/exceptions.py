@@ -22,6 +22,10 @@ class ApiError(exceptions.APIException):
     default_code = "error"
     default_detail = "Ocurrió un error al procesar la solicitud."
 
+    def __init__(self, detail=None, code=None, fields: dict | None = None):
+        super().__init__(detail, code)
+        self.fields = fields or {}
+
 
 class ServiceUnavailable(ApiError):
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
@@ -93,7 +97,9 @@ def api_exception_handler(exc, context):
         )
 
     fields = {}
-    if isinstance(exc, exceptions.ValidationError):
+    if isinstance(exc, ApiError):
+        fields = exc.fields
+    elif isinstance(exc, exceptions.ValidationError):
         detail = _stringify(exc.detail)
         fields = detail if isinstance(detail, dict) else {"non_field_errors": detail}
 
