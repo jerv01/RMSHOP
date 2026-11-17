@@ -10,7 +10,12 @@ from apps.cart.serializers import (
     CartItemUpdateInputSerializer,
     CartOutputSerializer,
 )
-from apps.cart.services import add_to_cart, remove_from_cart, update_cart_item_quantity
+from apps.cart.services import (
+    add_to_cart,
+    re_reserve_cart_item,
+    remove_from_cart,
+    update_cart_item_quantity,
+)
 from apps.users.permissions import IsCustomer
 
 
@@ -121,3 +126,27 @@ class CartItemDetailView(APIView):
 
         _prefetch_cart_items(cart)
         return Response(CartOutputSerializer(cart).data, status=status.HTTP_200_OK)
+
+
+class CartItemReReserveView(APIView):
+    """Re-reserva o confirma de nuevo el stock de un ítem expirado del carrito (HU-18)."""
+
+    permission_classes = [IsCustomer]
+
+    @extend_schema(
+        summary="Re-reservar ítem expirado del carrito",
+        description=(
+            "Permite al cliente re-confirmar o re-reservar por 15 minutos un ítem existente "
+            "en su carrito cuya reserva previa haya expirado, siempre que haya disponibilidad."
+        ),
+        request=None,
+        responses={200: CartOutputSerializer, 400: None, 404: None},
+    )
+    def post(self, request, item_id: int):
+        try:
+            cart_item, _ = re_reserve_cart_item(user=request.user, item_id=item_id)
+        except CartItem.DoesNotExist:
+            raise exceptions.NotFound("El ítem de carrito no existe.") from None
+
+        _prefetch_cart_items(cart_item.cart)
+        return Response(CartOutputSerializer(cart_item.cart).data, status=status.HTTP_200_OK)

@@ -790,3 +790,75 @@ def test_patch_cart_item_supports_without_trailing_slash(auth_client, customer_u
     assert response.status_code == status.HTTP_200_OK
     item.refresh_from_db()
     assert item.quantity == 3
+
+
+# ---------------------------------------------------------------------------
+# HU-18: POST /api/v1/cart/items/<id>/re-reserve/
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_re_reserve_cart_item_view_success(auth_client, customer_user, variant):
+    """POST /cart/items/<id>/re-reserve renueva la reserva de 15 min de un ítem expirado."""
+    auth_client.post(CART_ITEMS_URL, data={"variant_id": variant.id, "quantity": 1})
+    item = CartItem.objects.get(cart__user=customer_user, variant=variant)
+
+    # Expirar la reserva
+    item.reservation.expires_at = timezone.now() - timedelta(minutes=5)
+    item.reservation.save()
+
+    response = auth_client.post(f"/api/v1/cart/items/{item.id}/re-reserve/")
+
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    re_reserved = next(i for i in data["items"] if i["id"] == item.id)
+    assert re_reserved["reservation_status"] == "active"
+    assert re_reserved["is_reservation_active"] is True
+    assert re_reserved["reservation_message"] is None
+    assert 895 <= re_reserved["time_remaining_seconds"] <= 900
+
+
+@pytest.mark.django_db
+def test_re_reserve_cart_item_view_out_of_stock(
+    auth_client, other_auth_client, customer_user, other_customer_user, variant
+):
+    """Si no hay stock disponible para re-reservar, retorna 400 out_of_stock."""
+    variant.stock_quantity = 1
+    variant.save()
+
+    auth_client.post(CART_ITEMS_URL, data={"variant_id": variant.id, "quantity": 1})
+    item = CartItem.objects.get(cart__user=customer_user, variant=variant)
+
+    # A expira
+    item.reservation.expires_at = timezone.now() - timedelta(minutes=5)
+    item.reservation.save()
+
+    # B toma la unidad
+    other_auth_client.post(CART_ITEMS_URL, data={"variant_id": variant.id, "quantity": 1})
+
+    # A intenta re-reservar
+    response = auth_client.post(f"/api/v1/cart/items/{item.id}/re-reserve/")
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    data = response.json()
+    assert data["code"] == "out_of_stock"
+    assert "No hay disponibilidad suficiente" in data["message"]
+
+
+@pytest.mark.django_db
+def test_re_reserve_cart_item_view_isolation_not_found(
+    auth_client, other_auth_client, customer_user, other_customer_user, variant
+):
+    """Cliente A no puede re-reservar ítems del carrito de Cliente B (retorna 404)."""
+    other_auth_client.post(CART_ITEMS_URL, data={"variant_id": variant.id, "quantity": 1})
+    item_b = CartItem.objects.get(cart__user=other_customer_user, variant=variant)
+
+    response = auth_client.post(f"/api/v1/cart/items/{item_b.id}/re-reserve/")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.django_db
+def test_re_reserve_cart_item_unauthenticated(api_client, variant):
+    """Llamada sin autenticación retorna 401 Not Authenticated."""
+    response = api_client.post("/api/v1/cart/items/9999/re-reserve/")
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
