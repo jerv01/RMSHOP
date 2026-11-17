@@ -297,7 +297,7 @@ RM Shop es una plataforma web que centraliza el catálogo de la marca de ropa RM
 * Dependencias: HU-4, HU-9, HU-37  
 * Pre-chequeo DoR: \[1\] Calidad: Sí \| \[2\] Criterios: Sí \| \[3\] Dependencias: Sí \| \[4-6\] Se evalúan en Etapa 3
 
-**HU-14** \[SIN-IA\]
+**HU-14** \[SIN-IA\] \[BACKEND LISTO\]
 
 * Actor(es): Cliente registrado  
 * Descripción: Como Cliente registrado, quiero eliminar productos de mi carrito, para quitar los que ya no quiero.  
