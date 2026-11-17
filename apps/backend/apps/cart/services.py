@@ -56,7 +56,9 @@ def add_to_cart(
 
     try:
         variant = (
-            ProductVariant.objects.select_for_update().select_related("product").get(id=variant_id)
+            ProductVariant.objects.select_for_update(of=("self",))
+            .select_related("product")
+            .get(id=variant_id)
         )
     except ProductVariant.DoesNotExist:
         raise ValidationError(
@@ -70,7 +72,9 @@ def add_to_cart(
 
     cart, _ = Cart.objects.get_or_create(user=user)
 
-    cart_item = CartItem.objects.filter(cart=cart, variant=variant).first()
+    cart_item = (
+        CartItem.objects.select_related("reservation").filter(cart=cart, variant=variant).first()
+    )
     current_qty = cart_item.quantity if cart_item else 0
     existing_res_id = getattr(getattr(cart_item, "reservation", None), "id", None)
     target_qty = current_qty + quantity

@@ -97,6 +97,12 @@ class StockReservation(models.Model):
                 name="check_stock_reservation_quantity_gt_zero",
             ),
         ]
+        indexes = [
+            models.Index(
+                fields=["variant", "expires_at"],
+                name="idx_stock_res_var_expires",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"Reserva {self.quantity}x {self.variant} (expira {self.expires_at})"

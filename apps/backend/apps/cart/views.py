@@ -1,4 +1,4 @@
-from django.db.models import Prefetch
+from django.db.models import Prefetch, prefetch_related_objects
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.response import Response
@@ -11,6 +11,19 @@ from apps.cart.serializers import (
 )
 from apps.cart.services import add_to_cart
 from apps.users.permissions import IsCustomer
+
+
+def _prefetch_cart_items(cart: Cart) -> Cart:
+    prefetch_related_objects(
+        [cart],
+        Prefetch(
+            "items",
+            queryset=CartItem.objects.select_related("variant__product", "reservation").order_by(
+                "-created_at"
+            ),
+        ),
+    )
+    return cart
 
 
 class CartView(APIView):
@@ -27,15 +40,9 @@ class CartView(APIView):
         responses={200: CartOutputSerializer},
     )
     def get(self, request):
-        cart, _ = Cart.objects.get_or_create(user=request.user)
-        cart = Cart.objects.prefetch_related(
-            Prefetch(
-                "items",
-                queryset=CartItem.objects.select_related(
-                    "variant__product", "reservation"
-                ).order_by("-created_at"),
-            )
-        ).get(id=cart.id)
+        cart, created = Cart.objects.get_or_create(user=request.user)
+        if not created:
+            _prefetch_cart_items(cart)
         return Response(CartOutputSerializer(cart).data, status=status.HTTP_200_OK)
 
 
@@ -63,12 +70,5 @@ class CartItemAddView(APIView):
             quantity=serializer.validated_data["quantity"],
         )
 
-        cart = Cart.objects.prefetch_related(
-            Prefetch(
-                "items",
-                queryset=CartItem.objects.select_related(
-                    "variant__product", "reservation"
-                ).order_by("-created_at"),
-            )
-        ).get(id=cart_item.cart_id)
+        cart = _prefetch_cart_items(cart_item.cart)
         return Response(CartOutputSerializer(cart).data, status=status.HTTP_200_OK)

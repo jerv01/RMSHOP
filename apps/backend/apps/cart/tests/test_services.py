@@ -269,3 +269,81 @@ def test_add_to_cart_invalid_quantity_raises_validation_error(user, variant):
         add_to_cart(user=user, variant_id=variant.id, quantity=-3)
 
     assert "quantity" in exc_info.value.message_dict
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("status_value", [ProductStatus.DRAFT, ProductStatus.ARCHIVED])
+def test_add_to_cart_non_published_statuses_raise_validation_error(
+    user, product, variant, status_value
+):
+    """Tanto DRAFT como ARCHIVED deben ser rechazados."""
+    product.status = status_value
+    product.save(update_fields=["status"])
+
+    with pytest.raises(ValidationError) as exc_info:
+        add_to_cart(user=user, variant_id=variant.id, quantity=1)
+
+    assert "variant_id" in exc_info.value.message_dict
+
+
+@pytest.mark.django_db(transaction=True)
+def test_add_to_cart_concurrent_threads_race_condition(product, category):
+    """Argon Recommendation: Prueba de concurrencia real multi-hilo en PostgreSQL.
+
+    Dos clientes concurrentes intentan tomar la última unidad en stock al mismo tiempo.
+    select_for_update() asegura que exactamente 1 cliente tiene éxito y el otro recibe out_of_stock.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    from django.db import connection
+
+    # Crear variante con stock 1
+    variant_single = ProductVariant.objects.create(
+        product=product,
+        color="Rojo",
+        size="XL",
+        stock_quantity=1,
+    )
+
+    user_a = User.objects.create(
+        clerk_user_id="race_user_a",
+        email="race_a@rmshop.co",
+        first_name="Race",
+        last_name="A",
+    )
+    user_b = User.objects.create(
+        clerk_user_id="race_user_b",
+        email="race_b@rmshop.co",
+        first_name="Race",
+        last_name="B",
+    )
+
+    results = []
+
+    def attempt_add(u):
+        try:
+            item, res = add_to_cart(user=u, variant_id=variant_single.id, quantity=1)
+            results.append(("SUCCESS", u.id, item.id, res.id))
+        except ApiError as e:
+            results.append(("OUT_OF_STOCK", u.id, getattr(e.detail, "code", str(e))))
+        except Exception as e:
+            results.append(("ERROR", u.id, str(e)))
+        finally:
+            connection.close()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(attempt_add, user_a), executor.submit(attempt_add, user_b)]
+        for f in futures:
+            f.result()
+
+    successes = [r for r in results if r[0] == "SUCCESS"]
+    out_of_stocks = [r for r in results if r[0] == "OUT_OF_STOCK"]
+
+    assert len(successes) == 1, f"Exactamente 1 intento debe tener éxito, obtenido: {results}"
+    assert len(out_of_stocks) == 1, (
+        f"Exactamente 1 intento debe ser rechazado por stock, obtenido: {results}"
+    )
+    assert out_of_stocks[0][2] == "out_of_stock"
+
+    # Verificar que solo hay 1 reserva registrada en base de datos
+    assert StockReservation.objects.filter(variant=variant_single).count() == 1
