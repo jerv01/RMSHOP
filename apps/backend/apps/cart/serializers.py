@@ -60,6 +60,8 @@ class CartItemOutputSerializer(serializers.ModelSerializer):
     reservation_expires_at = serializers.SerializerMethodField()
     is_reservation_active = serializers.SerializerMethodField()
     time_remaining_seconds = serializers.SerializerMethodField()
+    reservation_status = serializers.SerializerMethodField()
+    reservation_message = serializers.SerializerMethodField()
 
     class Meta:
         model = CartItem
@@ -77,33 +79,51 @@ class CartItemOutputSerializer(serializers.ModelSerializer):
             "reservation_expires_at",
             "is_reservation_active",
             "time_remaining_seconds",
+            "reservation_status",
+            "reservation_message",
         ]
 
     @extend_schema_field(serializers.DateTimeField(allow_null=True))
     def get_reservation_expires_at(self, obj: CartItem):
         try:
             return obj.reservation.expires_at
-        except ObjectDoesNotExist, AttributeError:
+        except (ObjectDoesNotExist, AttributeError):
             return None
 
     @extend_schema_field(serializers.BooleanField())
     def get_is_reservation_active(self, obj: CartItem) -> bool:
         try:
             return obj.reservation.is_active()
-        except ObjectDoesNotExist, AttributeError:
+        except (ObjectDoesNotExist, AttributeError):
             return False
 
     @extend_schema_field(serializers.IntegerField(allow_null=True))
     def get_time_remaining_seconds(self, obj: CartItem) -> int | None:
         try:
             res = obj.reservation
-        except ObjectDoesNotExist, AttributeError:
+        except (ObjectDoesNotExist, AttributeError):
             return None
 
         diff = (res.expires_at - timezone.now()).total_seconds()
         if diff <= 0:
             return 0
         return math.ceil(diff)
+
+    @extend_schema_field(serializers.ChoiceField(choices=["active", "expired", "none"]))
+    def get_reservation_status(self, obj: CartItem) -> str:
+        try:
+            return "active" if obj.reservation.is_active() else "expired"
+        except (ObjectDoesNotExist, AttributeError):
+            return "expired"
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_reservation_message(self, obj: CartItem) -> str | None:
+        try:
+            if not obj.reservation.is_active():
+                return "Tu reserva expiró"
+            return None
+        except (ObjectDoesNotExist, AttributeError):
+            return "Tu reserva expiró"
 
 
 class CartOutputSerializer(serializers.ModelSerializer):

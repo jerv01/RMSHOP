@@ -261,6 +261,37 @@ def test_cart_item_outputs_time_remaining_seconds_and_handles_expiration(auth_cl
     assert expired_item["is_reservation_active"] is False
 
 
+@pytest.mark.django_db
+def test_cart_item_outputs_reservation_status_and_message_on_expiry(auth_client, variant):
+    """HU-18: Retorna reservation_status y mensaje 'Tu reserva expiró' al vencer la reserva."""
+    post_res = auth_client.post(CART_ITEMS_URL, data={"variant_id": variant.id, "quantity": 1})
+    assert post_res.status_code == status.HTTP_200_OK
+    item = post_res.json()["items"][0]
+
+    assert item["reservation_status"] == "active"
+    assert item["reservation_message"] is None
+
+    # Expirar la reserva
+    cart_item = CartItem.objects.get(id=item["id"])
+    cart_item.reservation.expires_at = timezone.now() - timedelta(seconds=1)
+    cart_item.reservation.save()
+
+    get_res = auth_client.get(CART_URL)
+    assert get_res.status_code == status.HTTP_200_OK
+    expired_item = get_res.json()["items"][0]
+
+    assert expired_item["reservation_status"] == "expired"
+    assert expired_item["reservation_message"] == "Tu reserva expiró"
+
+    # Si la reserva es eliminada físicamente (limpieza de expiradas), sigue marcándose expirada
+    cart_item.reservation.delete()
+    get_res2 = auth_client.get(CART_URL)
+    assert get_res2.status_code == status.HTTP_200_OK
+    cleaned_item = get_res2.json()["items"][0]
+    assert cleaned_item["reservation_status"] == "expired"
+    assert cleaned_item["reservation_message"] == "Tu reserva expiró"
+
+
 # ---------------------------------------------------------------------------
 # AC-HU-13-2: Unauthenticated
 # ---------------------------------------------------------------------------
