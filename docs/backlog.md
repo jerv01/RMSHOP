@@ -356,7 +356,7 @@ RM Shop es una plataforma web que centraliza el catálogo de la marca de ropa RM
 
 #### **Feature 3.2: Reserva de stock**
 
-**HU-17** \[SIN-IA\]
+**HU-17** \[SIN-IA\] \[BACKEND LISTO\]
 
 * Actor(es): Cliente registrado  
 * Descripción: Como Cliente registrado, quiero que el stock de los productos que agrego quede reservado por 15 minutos, para no perderlos mientras decido mi compra.  
