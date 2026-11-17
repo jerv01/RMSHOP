@@ -23,6 +23,18 @@ class CartItemAddInputSerializer(serializers.Serializer):
     )
 
 
+class CartItemUpdateInputSerializer(serializers.Serializer):
+    quantity = serializers.IntegerField(
+        min_value=1,
+        required=True,
+        error_messages={
+            "required": "El campo quantity es requerido.",
+            "invalid": "La cantidad debe ser un número entero válido.",
+            "min_value": "La cantidad debe ser mayor a cero.",
+        },
+    )
+
+
 class CartItemOutputSerializer(serializers.ModelSerializer):
     variant_id = serializers.IntegerField(read_only=True)
     product_id = serializers.IntegerField(source="variant.product_id", read_only=True)

@@ -548,3 +548,186 @@ def test_delete_cart_item_supports_without_trailing_slash(auth_client, customer_
 
     assert response.status_code == status.HTTP_200_OK
     assert not CartItem.objects.filter(id=item.id).exists()
+
+
+# ---------------------------------------------------------------------------
+# HU-15: Modificar cantidad de un ítem en el carrito
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_patch_cart_item_quantity_happy_path(auth_client, customer_user, variant):
+    """AC-HU-15-1: Cliente autenticado modifica cantidad de 1 a 2 exitosamente."""
+    # Setup: agregar ítem con cantidad 1 (precio 50000)
+    auth_client.post(CART_ITEMS_URL, data={"variant_id": variant.id, "quantity": 1})
+    item = CartItem.objects.get(cart__user=customer_user, variant=variant)
+
+    response = auth_client.patch(
+        f"/api/v1/cart/items/{item.id}/",
+        data={"quantity": 2},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert data["total_items"] == 2
+    assert data["total_price"] == "100000"
+    assert len(data["items"]) == 1
+    assert data["items"][0]["id"] == item.id
+    assert data["items"][0]["quantity"] == 2
+    assert data["items"][0]["subtotal"] == "100000"
+
+    # Verificar en base de datos
+    item.refresh_from_db()
+    assert item.quantity == 2
+    reservation = StockReservation.objects.get(cart_item=item)
+    assert reservation.quantity == 2
+    assert reservation.is_active()
+
+
+@pytest.mark.django_db
+def test_patch_cart_item_quantity_exceeds_stock(auth_client, customer_user, variant):
+    """AC-HU-15-2: Modificar cantidad superando stock disponible retorna 400 out_of_stock.
+
+    La cantidad previa en BD se conserva intacta y se informa max_available.
+    """
+    # variant stock_quantity = 5
+    auth_client.post(CART_ITEMS_URL, data={"variant_id": variant.id, "quantity": 2})
+    item = CartItem.objects.get(cart__user=customer_user, variant=variant)
+
+    response = auth_client.patch(
+        f"/api/v1/cart/items/{item.id}/",
+        data={"quantity": 10},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    data = response.json()
+    assert data["code"] == "out_of_stock"
+    assert data["fields"]["max_available"] == 5
+
+    # Verificar que en BD no cambió la cantidad ni la reserva
+    item.refresh_from_db()
+    assert item.quantity == 2
+    reservation = StockReservation.objects.get(cart_item=item)
+    assert reservation.quantity == 2
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("invalid_qty", [0, -1, -5])
+def test_patch_cart_item_quantity_invalid_zero_or_negative(
+    auth_client, customer_user, variant, invalid_qty
+):
+    """AC-HU-15-3: Enviar quantity <= 0 retorna 400 validation_error y conserva cantidad."""
+    auth_client.post(CART_ITEMS_URL, data={"variant_id": variant.id, "quantity": 3})
+    item = CartItem.objects.get(cart__user=customer_user, variant=variant)
+
+    response = auth_client.patch(
+        f"/api/v1/cart/items/{item.id}/",
+        data={"quantity": invalid_qty},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    data = response.json()
+    assert data["code"] == "validation_error"
+    assert "quantity" in data["fields"]
+
+    item.refresh_from_db()
+    assert item.quantity == 3
+    reservation = StockReservation.objects.get(cart_item=item)
+    assert reservation.quantity == 3
+
+
+@pytest.mark.django_db
+def test_patch_cart_item_missing_quantity(auth_client, customer_user, variant):
+    """Omitir el campo quantity retorna 400 validation_error."""
+    auth_client.post(CART_ITEMS_URL, data={"variant_id": variant.id, "quantity": 1})
+    item = CartItem.objects.get(cart__user=customer_user, variant=variant)
+
+    response = auth_client.patch(
+        f"/api/v1/cart/items/{item.id}/",
+        data={},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    data = response.json()
+    assert data["code"] == "validation_error"
+    assert "quantity" in data["fields"]
+
+    item.refresh_from_db()
+    assert item.quantity == 1
+
+
+@pytest.mark.django_db
+def test_patch_cart_item_unauthenticated(api_client, customer_user, variant):
+    """Petición anónima retorna 401 Unauthorized y no modifica el carrito."""
+    cart = Cart.objects.create(user=customer_user)
+    item = CartItem.objects.create(cart=cart, variant=variant, quantity=1)
+
+    response = api_client.patch(
+        f"/api/v1/cart/items/{item.id}/",
+        data={"quantity": 2},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+    data = response.json()
+    assert data["code"] == "not_authenticated"
+
+    item.refresh_from_db()
+    assert item.quantity == 1
+
+
+@pytest.mark.django_db
+def test_patch_cart_item_nonexistent(auth_client):
+    """Intentar modificar un item_id inexistente retorna 404 Not Found."""
+    response = auth_client.patch(
+        "/api/v1/cart/items/999999/",
+        data={"quantity": 2},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    data = response.json()
+    assert data["code"] == "not_found"
+
+
+@pytest.mark.django_db
+def test_patch_cart_item_isolation(
+    auth_client, other_auth_client, customer_user, other_customer_user, variant
+):
+    """Cliente A no puede modificar ítems del carrito de Cliente B (retorna 404 y queda intacto)."""
+    other_auth_client.post(CART_ITEMS_URL, data={"variant_id": variant.id, "quantity": 2})
+    item_b = CartItem.objects.get(cart__user=other_customer_user, variant=variant)
+
+    response = auth_client.patch(
+        f"/api/v1/cart/items/{item_b.id}/",
+        data={"quantity": 4},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    data = response.json()
+    assert data["code"] == "not_found"
+
+    item_b.refresh_from_db()
+    assert item_b.quantity == 2
+
+
+@pytest.mark.django_db
+def test_patch_cart_item_supports_without_trailing_slash(auth_client, customer_user, variant):
+    """Verifica que /api/v1/cart/items/<id> sin slash final funcione correctamente con PATCH."""
+    auth_client.post(CART_ITEMS_URL, data={"variant_id": variant.id, "quantity": 1})
+    item = CartItem.objects.get(cart__user=customer_user, variant=variant)
+
+    response = auth_client.patch(
+        f"/api/v1/cart/items/{item.id}",
+        data={"quantity": 3},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    item.refresh_from_db()
+    assert item.quantity == 3

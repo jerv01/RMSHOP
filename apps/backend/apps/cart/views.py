@@ -7,9 +7,10 @@ from rest_framework.views import APIView
 from apps.cart.models import Cart, CartItem
 from apps.cart.serializers import (
     CartItemAddInputSerializer,
+    CartItemUpdateInputSerializer,
     CartOutputSerializer,
 )
-from apps.cart.services import add_to_cart, remove_from_cart
+from apps.cart.services import add_to_cart, remove_from_cart, update_cart_item_quantity
 from apps.users.permissions import IsCustomer
 
 
@@ -75,9 +76,34 @@ class CartItemAddView(APIView):
 
 
 class CartItemDetailView(APIView):
-    """Elimina un ítem específico del carrito de compras y libera su reserva (HU-14)."""
+    """Operaciones sobre un ítem específico del carrito: modificación de cantidad y eliminación."""
 
     permission_classes = [IsCustomer]
+
+    @extend_schema(
+        summary="Modificar cantidad de ítem del carrito",
+        description=(
+            "Actualiza la cantidad de un ítem en el carrito del cliente autenticado "
+            "y ajusta su reserva de stock. Retorna el estado actualizado del carrito."
+        ),
+        request=CartItemUpdateInputSerializer,
+        responses={200: CartOutputSerializer, 400: None, 404: None},
+    )
+    def patch(self, request, item_id: int):
+        serializer = CartItemUpdateInputSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            cart_item, _ = update_cart_item_quantity(
+                user=request.user,
+                item_id=item_id,
+                quantity=serializer.validated_data["quantity"],
+            )
+        except CartItem.DoesNotExist:
+            raise exceptions.NotFound("El ítem de carrito no existe.") from None
+
+        _prefetch_cart_items(cart_item.cart)
+        return Response(CartOutputSerializer(cart_item.cart).data, status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="Eliminar ítem del carrito",
