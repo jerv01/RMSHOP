@@ -131,3 +131,75 @@ def remove_from_cart(*, user: User, item_id: int) -> Cart:
     cart = item.cart
     item.delete()
     return cart
+
+
+@transaction.atomic
+def update_cart_item_quantity(
+    *,
+    user: User,
+    item_id: int,
+    quantity: int,
+) -> tuple[CartItem, StockReservation]:
+    """Modifica la cantidad de un ítem existente en el carrito del usuario.
+
+    Reglas de negocio (HU-15):
+    - La cantidad debe ser mayor o igual a 1 (AC-HU-15-3).
+    - Busca el CartItem asegurando pertenencia al carrito del usuario (cart__user=user).
+      Si no existe, lanza CartItem.DoesNotExist.
+    - Adquiere bloqueo a nivel de fila en la variante con select_for_update(of=("self",)).
+    - Calcula el stock disponible para este usuario excluyendo la reserva previa de este ítem
+      (get_available_variant_stock(variant, exclude_reservation_id=res_id)).
+    - Si quantity > available_stock:
+      Lanza ApiError con code='out_of_stock', indicando el máximo disponible
+      en el mensaje y en fields["max_available"].
+    - Actualiza item.quantity = quantity.
+    - Actualiza o crea StockReservation con la nueva cantidad y renueva expires_at a now + 15 min.
+    - Retorna (item, reservation).
+    """
+    if quantity < 1:
+        raise ValidationError({"quantity": ["La cantidad debe ser mayor a cero."]})
+
+    try:
+        cart_item = (
+            CartItem.objects.select_for_update(of=("self", "cart"))
+            .select_related("cart", "variant")
+            .get(id=item_id, cart__user=user)
+        )
+    except CartItem.DoesNotExist:
+        raise CartItem.DoesNotExist(
+            f"El ítem #{item_id} no existe en el carrito del usuario."
+        ) from None
+
+    variant = (
+        ProductVariant.objects.select_for_update(of=("self",))
+        .select_related("product")
+        .get(id=cart_item.variant_id)
+    )
+
+    existing_res_id = getattr(getattr(cart_item, "reservation", None), "id", None)
+    available_stock = get_available_variant_stock(variant, exclude_reservation_id=existing_res_id)
+
+    if quantity > available_stock:
+        raise ApiError(
+            detail=(
+                f"No hay disponibilidad suficiente. "
+                f"El stock máximo disponible es {available_stock}."
+            ),
+            code="out_of_stock",
+            fields={"max_available": available_stock},
+        )
+
+    cart_item.quantity = quantity
+    cart_item.save(update_fields=["quantity", "updated_at"])
+
+    expires_at = timezone.now() + timedelta(minutes=RESERVATION_DURATION_MINUTES)
+    reservation, _ = StockReservation.objects.update_or_create(
+        cart_item=cart_item,
+        defaults={
+            "variant": variant,
+            "quantity": quantity,
+            "expires_at": expires_at,
+        },
+    )
+
+    return cart_item, reservation

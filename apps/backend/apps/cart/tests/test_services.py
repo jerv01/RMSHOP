@@ -11,6 +11,7 @@ from apps.cart.services import (
     add_to_cart,
     get_available_variant_stock,
     remove_from_cart,
+    update_cart_item_quantity,
 )
 from apps.catalog.models import Category, Product, ProductStatus, ProductVariant
 from apps.core.exceptions import ApiError
@@ -450,3 +451,127 @@ def test_remove_from_cart_when_reservation_already_purged(user, variant):
     cart = remove_from_cart(user=user, item_id=item.id)
     assert not CartItem.objects.filter(id=item.id).exists()
     assert cart.items.count() == 0
+
+
+# ============================================================================
+# HU-15: Pruebas unitarias de update_cart_item_quantity
+# ============================================================================
+
+
+@pytest.mark.django_db
+def test_update_cart_item_quantity_happy_path(user, variant):
+    """AC-HU-15-1: Aumentar cantidad dentro del stock disponible.
+
+    Actualiza ítem, reserva y totales.
+    """
+    variant.stock_quantity = 5
+    variant.save(update_fields=["stock_quantity"])
+
+    item, res = add_to_cart(user=user, variant_id=variant.id, quantity=1)
+    old_expires_at = res.expires_at
+
+    updated_item, updated_res = update_cart_item_quantity(user=user, item_id=item.id, quantity=3)
+
+    assert updated_item.id == item.id
+    assert updated_item.quantity == 3
+    assert updated_res.id == res.id
+    assert updated_res.quantity == 3
+    assert updated_res.expires_at >= old_expires_at
+
+    expected_expiry = timezone.now() + timedelta(minutes=RESERVATION_DURATION_MINUTES)
+    assert abs((updated_res.expires_at - expected_expiry).total_seconds()) < 5
+
+    # Stock disponible ahora debe ser 5 - 3 = 2
+    assert get_available_variant_stock(variant) == 2
+
+    # Verificar totales del carrito
+    cart = Cart.objects.get(user=user)
+    assert cart.total_items == 3
+    assert cart.total_price == Decimal("50000") * 3
+
+
+@pytest.mark.django_db
+def test_update_cart_item_quantity_decrease(user, variant):
+    """Disminuir cantidad actualiza ítem y reserva, liberando el stock excedente."""
+    variant.stock_quantity = 5
+    variant.save(update_fields=["stock_quantity"])
+
+    item, _ = add_to_cart(user=user, variant_id=variant.id, quantity=3)
+    assert get_available_variant_stock(variant) == 2
+
+    updated_item, updated_res = update_cart_item_quantity(user=user, item_id=item.id, quantity=1)
+
+    assert updated_item.quantity == 1
+    assert updated_res.quantity == 1
+    # Stock disponible ahora es 5 - 1 = 4 (se liberaron 2 unidades)
+    assert get_available_variant_stock(variant) == 4
+
+    cart = Cart.objects.get(user=user)
+    assert cart.total_items == 1
+    assert cart.total_price == Decimal("50000")
+
+
+@pytest.mark.django_db
+def test_update_cart_item_quantity_exceeds_stock(user, variant):
+    """AC-HU-15-2: Cantidad mayor a disponible lanza ApiError.
+
+    Debe tener code='out_of_stock' y fields['max_available'].
+    """
+    variant.stock_quantity = 3
+    variant.save(update_fields=["stock_quantity"])
+
+    item, _ = add_to_cart(user=user, variant_id=variant.id, quantity=1)
+
+    with pytest.raises(ApiError) as exc_info:
+        update_cart_item_quantity(user=user, item_id=item.id, quantity=4)
+
+    err = exc_info.value
+    assert err.get_codes() == "out_of_stock"
+    assert "stock máximo disponible es 3" in str(err.detail)
+    assert err.fields.get("max_available") == 3
+
+    # La cantidad en BD permanece intacta (1)
+    item.refresh_from_db()
+    assert item.quantity == 1
+    assert get_available_variant_stock(variant) == 2
+
+
+@pytest.mark.django_db
+def test_update_cart_item_quantity_invalid_quantity(user, variant):
+    """AC-HU-15-3: Cantidad 0 o negativa lanza ValidationError y no muta el ítem."""
+    item, _ = add_to_cart(user=user, variant_id=variant.id, quantity=2)
+
+    with pytest.raises(ValidationError) as exc_info:
+        update_cart_item_quantity(user=user, item_id=item.id, quantity=0)
+    assert "quantity" in exc_info.value.message_dict
+    assert exc_info.value.message_dict["quantity"] == ["La cantidad debe ser mayor a cero."]
+
+    with pytest.raises(ValidationError) as exc_info:
+        update_cart_item_quantity(user=user, item_id=item.id, quantity=-2)
+    assert "quantity" in exc_info.value.message_dict
+
+    item.refresh_from_db()
+    assert item.quantity == 2
+
+
+@pytest.mark.django_db
+def test_update_cart_item_quantity_nonexistent_item(user):
+    """ID inexistente lanza CartItem.DoesNotExist."""
+    with pytest.raises(CartItem.DoesNotExist) as exc_info:
+        update_cart_item_quantity(user=user, item_id=999999, quantity=2)
+
+    assert "999999" in str(exc_info.value)
+
+
+@pytest.mark.django_db
+def test_update_cart_item_quantity_item_of_other_user(user, other_user, variant):
+    """Ítem de otro usuario lanza CartItem.DoesNotExist y no se muta."""
+    item, res = add_to_cart(user=other_user, variant_id=variant.id, quantity=2)
+
+    with pytest.raises(CartItem.DoesNotExist):
+        update_cart_item_quantity(user=user, item_id=item.id, quantity=5)
+
+    item.refresh_from_db()
+    res.refresh_from_db()
+    assert item.quantity == 2
+    assert res.quantity == 2
