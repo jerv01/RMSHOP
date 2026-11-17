@@ -119,8 +119,8 @@ def remove_from_cart(*, user: User, item_id: int) -> Cart:
     """
     try:
         item = (
-            CartItem.objects.select_for_update()
-            .select_related("cart", "variant")
+            CartItem.objects.select_for_update(of=("self", "cart"))
+            .select_related("cart")
             .get(id=item_id, cart__user=user)
         )
     except CartItem.DoesNotExist:

@@ -436,3 +436,17 @@ def test_remove_from_cart_item_of_other_user_raises_does_not_exist(user, other_u
     # El ítem y reserva del otro usuario permanecen intactos
     assert CartItem.objects.filter(id=item.id).exists()
     assert StockReservation.objects.filter(id=res.id).exists()
+
+
+@pytest.mark.django_db
+def test_remove_from_cart_when_reservation_already_purged(user, variant):
+    """Argon Edge Case: Si una tarea de limpieza previa ya purgó la StockReservation,
+
+    remove_from_cart aún debe eliminar el CartItem limpiamente sin fallar.
+    """
+    item, res = add_to_cart(user=user, variant_id=variant.id, quantity=1)
+    res.delete()  # Simular purga física previa
+
+    cart = remove_from_cart(user=user, item_id=item.id)
+    assert not CartItem.objects.filter(id=item.id).exists()
+    assert cart.items.count() == 0
