@@ -278,7 +278,7 @@ RM Shop es una plataforma web que centraliza el catálogo de la marca de ropa RM
 
 #### **Feature 3.1: Gestión del carrito**
 
-**HU-13** \[SIN-IA\]
+**HU-13** \[SIN-IA\] \[BACKEND LISTO\]
 
 * Actor(es): Cliente registrado  
 * Descripción: Como Cliente registrado, quiero agregar una variante de producto a mi carrito, para reunir las prendas que deseo comprar.  
