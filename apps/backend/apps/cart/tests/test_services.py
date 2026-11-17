@@ -575,3 +575,60 @@ def test_update_cart_item_quantity_item_of_other_user(user, other_user, variant)
     res.refresh_from_db()
     assert item.quantity == 2
     assert res.quantity == 2
+
+
+@pytest.mark.django_db
+def test_update_cart_item_quantity_when_reservation_was_deleted_or_expired(user, variant):
+    """Argon Edge Case: Si la reserva previa fue eliminada o expiró,
+
+    update_cart_item_quantity no lanza DoesNotExist, recrea la reserva y renueva expires_at.
+    """
+    item, res = add_to_cart(user=user, variant_id=variant.id, quantity=1)
+    res.delete()  # Simular purga física previa
+
+    updated_item, new_res = update_cart_item_quantity(user=user, item_id=item.id, quantity=2)
+    assert updated_item.quantity == 2
+    assert new_res.quantity == 2
+    assert new_res.is_active() is True
+
+
+@pytest.mark.django_db
+def test_update_cart_item_quantity_accounts_for_other_users_active_reservations(
+    user, other_user, variant
+):
+    """Argon Edge Case: Stock = 5. Usuario A tiene 2, Usuario B tiene 2.
+
+    Usuario A intenta subir a 4: debe fallar porque el stock disponible para A es 3 (5 - 2 de B).
+    """
+    variant.stock_quantity = 5
+    variant.save(update_fields=["stock_quantity"])
+
+    item_a, _ = add_to_cart(user=user, variant_id=variant.id, quantity=2)
+    add_to_cart(user=other_user, variant_id=variant.id, quantity=2)
+
+    with pytest.raises(ApiError) as exc_info:
+        update_cart_item_quantity(user=user, item_id=item_a.id, quantity=4)
+
+    err = exc_info.value
+    assert err.get_codes() == "out_of_stock"
+    assert err.fields.get("max_available") == 3
+    assert "stock máximo disponible es 3" in str(err.detail)
+
+
+@pytest.mark.django_db
+def test_update_cart_item_quantity_same_value_renews_expiration(user, variant):
+    """Argon Edge Case: Si se envía la misma cantidad, es idempotente y renueva expires_at."""
+    item, res = add_to_cart(user=user, variant_id=variant.id, quantity=2)
+    original_expires = res.expires_at
+
+    # Adelantar el tiempo 5 minutos
+    future_now = timezone.now() + timedelta(minutes=5)
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(timezone, "now", lambda: future_now)
+        updated_item, updated_res = update_cart_item_quantity(
+            user=user, item_id=item.id, quantity=2
+        )
+
+        assert updated_item.quantity == 2
+        assert updated_res.quantity == 2
+        assert updated_res.expires_at > original_expires

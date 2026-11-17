@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import models, transaction
 from django.utils import timezone
 
@@ -76,7 +76,10 @@ def add_to_cart(
         CartItem.objects.select_related("reservation").filter(cart=cart, variant=variant).first()
     )
     current_qty = cart_item.quantity if cart_item else 0
-    existing_res_id = getattr(getattr(cart_item, "reservation", None), "id", None)
+    try:
+        existing_res_id = cart_item.reservation.id if cart_item else None
+    except ObjectDoesNotExist:
+        existing_res_id = None
     target_qty = current_qty + quantity
 
     available_stock = get_available_variant_stock(variant, exclude_reservation_id=existing_res_id)
@@ -159,24 +162,32 @@ def update_cart_item_quantity(
     if quantity < 1:
         raise ValidationError({"quantity": ["La cantidad debe ser mayor a cero."]})
 
+    # 1. Validación de existencia y lectura de variant_id
     try:
-        cart_item = (
-            CartItem.objects.select_for_update(of=("self", "cart"))
-            .select_related("cart", "variant")
-            .get(id=item_id, cart__user=user)
-        )
+        item_meta = CartItem.objects.values("id", "variant_id").get(id=item_id, cart__user=user)
     except CartItem.DoesNotExist:
         raise CartItem.DoesNotExist(
             f"El ítem #{item_id} no existe en el carrito del usuario."
         ) from None
 
+    # 2. Orden canónico de bloqueo: ProductVariant primero (homólogo a add_to_cart)
     variant = (
         ProductVariant.objects.select_for_update(of=("self",))
         .select_related("product")
-        .get(id=cart_item.variant_id)
+        .get(id=item_meta["variant_id"])
     )
 
-    existing_res_id = getattr(getattr(cart_item, "reservation", None), "id", None)
+    # 3. Bloqueo de CartItem y Cart después
+    cart_item = (
+        CartItem.objects.select_for_update(of=("self", "cart"))
+        .select_related("cart", "variant", "reservation")
+        .get(id=item_id, cart__user=user)
+    )
+
+    try:
+        existing_res_id = cart_item.reservation.id
+    except ObjectDoesNotExist:
+        existing_res_id = None
     available_stock = get_available_variant_stock(variant, exclude_reservation_id=existing_res_id)
 
     if quantity > available_stock:
