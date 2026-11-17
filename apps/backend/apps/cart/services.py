@@ -103,3 +103,31 @@ def add_to_cart(
     )
 
     return cart_item, reservation
+
+
+@transaction.atomic
+def remove_from_cart(*, user: User, item_id: int) -> Cart:
+    """Elimina un ítem del carrito del usuario y libera su reserva de stock.
+
+    Reglas de negocio (HU-14):
+    - Busca el CartItem asegurando pertenencia al carrito del usuario (cart__user=user).
+    - Si no existe, lanza CartItem.DoesNotExist.
+    - Al eliminar el CartItem, la base de datos elimina por CASCADE la StockReservation asociada,
+      liberando inmediatamente el stock para otros clientes.
+    - Si la reserva ya expiró, la eliminación procede normalmente sin error (AC-HU-14-2).
+    - Retorna la instancia de Cart del usuario.
+    """
+    try:
+        item = (
+            CartItem.objects.select_for_update()
+            .select_related("cart", "variant")
+            .get(id=item_id, cart__user=user)
+        )
+    except CartItem.DoesNotExist:
+        raise CartItem.DoesNotExist(
+            f"El ítem #{item_id} no existe en el carrito del usuario."
+        ) from None
+
+    cart = item.cart
+    item.delete()
+    return cart

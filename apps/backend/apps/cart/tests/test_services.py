@@ -10,6 +10,7 @@ from apps.cart.services import (
     RESERVATION_DURATION_MINUTES,
     add_to_cart,
     get_available_variant_stock,
+    remove_from_cart,
 )
 from apps.catalog.models import Category, Product, ProductStatus, ProductVariant
 from apps.core.exceptions import ApiError
@@ -67,6 +68,16 @@ def variant(db, product):
         color="Negro",
         size="M",
         stock_quantity=10,
+    )
+
+
+@pytest.fixture
+def variant2(db, product):
+    return ProductVariant.objects.create(
+        product=product,
+        color="Blanco",
+        size="L",
+        stock_quantity=8,
     )
 
 
@@ -347,3 +358,81 @@ def test_add_to_cart_concurrent_threads_race_condition(product, category):
 
     # Verificar que solo hay 1 reserva registrada en base de datos
     assert StockReservation.objects.filter(variant=variant_single).count() == 1
+
+
+# ============================================================================
+# HU-14: Pruebas unitarias de remove_from_cart
+# ============================================================================
+
+
+@pytest.mark.django_db
+def test_remove_from_cart_success(user, variant, variant2):
+    """Eliminar un ítem de dos deja 1 ítem y libera el stock del ítem eliminado inmediatamente."""
+    item1, res1 = add_to_cart(user=user, variant_id=variant.id, quantity=3)
+    item2, res2 = add_to_cart(user=user, variant_id=variant2.id, quantity=2)
+
+    assert get_available_variant_stock(variant) == 7
+    assert get_available_variant_stock(variant2) == 6
+
+    cart = remove_from_cart(user=user, item_id=item1.id)
+
+    assert cart.items.count() == 1
+    assert cart.items.first().id == item2.id
+    assert not CartItem.objects.filter(id=item1.id).exists()
+    assert not StockReservation.objects.filter(id=res1.id).exists()
+
+    # El stock del ítem eliminado se libera inmediatamente
+    assert get_available_variant_stock(variant) == 10
+    # El stock del otro ítem permanece reservado
+    assert get_available_variant_stock(variant2) == 6
+
+
+@pytest.mark.django_db
+def test_remove_from_cart_expired_reservation(user, variant):
+    """Eliminar un ítem con reserva ya expirada procede sin errores (AC-HU-14-2)."""
+    item, res = add_to_cart(user=user, variant_id=variant.id, quantity=2)
+    res.expires_at = timezone.now() - timedelta(minutes=5)
+    res.save(update_fields=["expires_at"])
+
+    assert res.is_active() is False
+
+    cart = remove_from_cart(user=user, item_id=item.id)
+
+    assert cart.items.count() == 0
+    assert not CartItem.objects.filter(id=item.id).exists()
+    assert not StockReservation.objects.filter(id=res.id).exists()
+    assert get_available_variant_stock(variant) == 10
+
+
+@pytest.mark.django_db
+def test_remove_from_cart_last_item(user, variant):
+    """Eliminar el único ítem deja el carrito vacío y totales en cero."""
+    item, _ = add_to_cart(user=user, variant_id=variant.id, quantity=4)
+
+    cart = remove_from_cart(user=user, item_id=item.id)
+
+    assert cart.items.count() == 0
+    assert cart.total_items == 0
+    assert cart.total_price == Decimal("0")
+
+
+@pytest.mark.django_db
+def test_remove_from_cart_nonexistent_item_raises_does_not_exist(user):
+    """Intentar eliminar un ítem inexistente lanza CartItem.DoesNotExist."""
+    with pytest.raises(CartItem.DoesNotExist) as exc_info:
+        remove_from_cart(user=user, item_id=999999)
+
+    assert "999999" in str(exc_info.value)
+
+
+@pytest.mark.django_db
+def test_remove_from_cart_item_of_other_user_raises_does_not_exist(user, other_user, variant):
+    """Un usuario no puede eliminar ítems de otro usuario (lanza DoesNotExist)."""
+    item, res = add_to_cart(user=other_user, variant_id=variant.id, quantity=2)
+
+    with pytest.raises(CartItem.DoesNotExist):
+        remove_from_cart(user=user, item_id=item.id)
+
+    # El ítem y reserva del otro usuario permanecen intactos
+    assert CartItem.objects.filter(id=item.id).exists()
+    assert StockReservation.objects.filter(id=res.id).exists()
