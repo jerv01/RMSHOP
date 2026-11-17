@@ -7,6 +7,7 @@ from django.utils import timezone
 from apps.cart.models import Cart, CartItem, StockReservation
 from apps.catalog.models import ProductStatus, ProductVariant
 from apps.core.exceptions import ApiError
+from apps.inventory.models import StockMovement
 from apps.users.models import User
 
 RESERVATION_DURATION_MINUTES = 15
@@ -214,3 +215,165 @@ def update_cart_item_quantity(
     )
 
     return cart_item, reservation
+
+
+@transaction.atomic
+def convert_reservation_to_sale(
+    *,
+    reservation_id: int | None = None,
+    reservation: StockReservation | None = None,
+    admin_user: User | None = None,
+    order_reference: str = "",
+) -> StockMovement:
+    """Convierte una reserva activa en una venta definitiva descontando stock físico (AC-HU-17-3).
+
+    Reglas de negocio (HU-17 y HU-37):
+    - Concurrencia atómica con select_for_update en ProductVariant.
+    - Valida que la reserva exista y esté activa (expires_at > now). Si expiró,
+      lanza ApiError(code="reservation_expired").
+    - Descuenta reservation.quantity del stock_quantity físico de la variante.
+    - Crea un StockMovement de auditoría con delta negativo y motivo de venta (HU-37).
+    - Elimina la reserva de stock y el CartItem asociado (el stock no se libera, se consolida).
+    - Retorna la instancia de StockMovement creada.
+    """
+    if reservation is None and reservation_id is None:
+        raise ValueError("Se debe proporcionar reservation o reservation_id.")
+
+    res_id = reservation.id if reservation is not None else reservation_id
+
+    # 1. Obtener variant_id de la reserva
+    try:
+        res_meta = StockReservation.objects.values("id", "variant_id").get(id=res_id)
+    except StockReservation.DoesNotExist:
+        raise StockReservation.DoesNotExist(f"La reserva #{res_id} no existe.") from None
+
+    # 2. Bloqueo canónico de fila en ProductVariant
+    variant = ProductVariant.objects.select_for_update(of=("self",)).get(id=res_meta["variant_id"])
+
+    # 3. Bloqueo de la reserva y CartItem
+    active_res = (
+        StockReservation.objects.select_for_update(of=("self", "cart_item"))
+        .select_related("cart_item")
+        .get(id=res_id)
+    )
+
+    if not active_res.is_active():
+        raise ApiError(
+            detail="La reserva de stock ha expirado y no puede convertirse en venta.",
+            code="reservation_expired",
+        )
+
+    if variant.stock_quantity < active_res.quantity:
+        raise ApiError(
+            detail="Inconsistencia de stock al procesar la venta.",
+            code="insufficient_stock",
+        )
+
+    new_stock = variant.stock_quantity - active_res.quantity
+    variant.stock_quantity = new_stock
+    variant.save(update_fields=["stock_quantity", "updated_at"])
+
+    reason_str = (
+        f"Venta checkout {order_reference}".strip()
+        if order_reference
+        else "Venta checkout pedido"
+    )
+    movement = StockMovement.objects.create(
+        variant=variant,
+        admin=admin_user,
+        delta=-active_res.quantity,
+        resulting_stock=new_stock,
+        reason=reason_str,
+    )
+
+    cart_item = active_res.cart_item
+    active_res.delete()
+    if cart_item:
+        cart_item.delete()
+
+    return movement
+
+
+@transaction.atomic
+def convert_cart_to_sale(
+    *,
+    cart: Cart,
+    admin_user: User | None = None,
+    order_reference: str = "",
+) -> list[StockMovement]:
+    """Convierte todas las reservas activas de un carrito en ventas definitivas (AC-HU-17-3).
+
+    Reglas de negocio (HU-17 y HU-37):
+    - Bloqueo en orden canónico por variant_id ascendente para prevenir deadlocks.
+    - Valida que todas las reservas del carrito sigan activas. Si alguna expiró,
+      lanza ApiError(code="reservation_expired").
+    - Descuenta el stock físico de cada variante y genera su correspondiente StockMovement.
+    - Elimina reservas y vacía los ítems correspondientes del carrito.
+    - Retorna la lista de StockMovement creados.
+    """
+    items = list(
+        CartItem.objects.filter(cart=cart)
+        .select_related("reservation")
+        .order_by("variant_id")
+    )
+    if not items:
+        return []
+
+    # 1. Orden canónico de bloqueo de variantes por id
+    variant_ids = sorted(list({item.variant_id for item in items}))
+    variants = {
+        v.id: v
+        for v in ProductVariant.objects.select_for_update(of=("self",))
+        .filter(id__in=variant_ids)
+        .order_by("id")
+    }
+
+    # 2. Validación preliminar: verificar que todos tengan reserva activa
+    for item in items:
+        try:
+            res = item.reservation
+        except ObjectDoesNotExist:
+            raise ApiError(
+                detail=f"El ítem #{item.id} no posee una reserva activa.",
+                code="reservation_missing",
+            )
+        if not res.is_active():
+            raise ApiError(
+                detail=f"La reserva para la variante {item.variant} ha expirado.",
+                code="reservation_expired",
+            )
+        variant = variants[item.variant_id]
+        if variant.stock_quantity < res.quantity:
+            raise ApiError(
+                detail=f"Inconsistencia de stock al procesar la variante {variant}.",
+                code="insufficient_stock",
+            )
+
+    # 3. Aplicar deducciones de stock y registrar movimientos
+    movements = []
+    reason_str = (
+        f"Venta checkout {order_reference}".strip()
+        if order_reference
+        else "Venta checkout pedido"
+    )
+
+    for item in items:
+        res = item.reservation
+        variant = variants[item.variant_id]
+        new_stock = variant.stock_quantity - res.quantity
+        variant.stock_quantity = new_stock
+        variant.save(update_fields=["stock_quantity", "updated_at"])
+
+        movement = StockMovement.objects.create(
+            variant=variant,
+            admin=admin_user,
+            delta=-res.quantity,
+            resulting_stock=new_stock,
+            reason=reason_str,
+        )
+        movements.append(movement)
+
+        res.delete()
+        item.delete()
+
+    return movements
