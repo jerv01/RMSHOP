@@ -7,6 +7,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from apps.cart.models import Cart, CartItem, StockReservation
+from apps.cart.services import get_available_variant_stock
 from apps.catalog.models import Category, Product, ProductStatus, ProductVariant
 from apps.users.clerk import ClerkClaims
 from apps.users.models import User
@@ -415,3 +416,135 @@ def test_cart_privacy_and_isolation(
     assert data_user2["total_items"] == 1
     assert len(data_user2["items"]) == 1
     assert data_user2["items"][0]["variant_id"] == variant_blue.id
+
+
+# ---------------------------------------------------------------------------
+# HU-14: DELETE /api/v1/cart/items/<item_id>/
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_delete_cart_item_happy_path(auth_client, customer_user, variant, variant_blue):
+    """AC-HU-14-1: Cliente autenticado elimina un ítem de su carrito.
+
+    Retorna 200 con el carrito recalculado y la reserva de stock liberada.
+    """
+    # Agregar 2 variantes distintas
+    auth_client.post(CART_ITEMS_URL, data={"variant_id": variant.id, "quantity": 2})
+    auth_client.post(CART_ITEMS_URL, data={"variant_id": variant_blue.id, "quantity": 1})
+
+    item_to_remove = CartItem.objects.get(cart__user=customer_user, variant=variant)
+    remaining_item = CartItem.objects.get(cart__user=customer_user, variant=variant_blue)
+
+    # Verificar stock reservado previo
+    assert get_available_variant_stock(variant) == variant.stock_quantity - 2
+
+    # Ejecutar DELETE
+    response = auth_client.delete(f"/api/v1/cart/items/{item_to_remove.id}/")
+
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+
+    assert data["total_items"] == 1
+    assert data["total_price"] == "50000"
+    assert len(data["items"]) == 1
+    assert data["items"][0]["id"] == remaining_item.id
+    assert data["items"][0]["variant_id"] == variant_blue.id
+
+    # Verificar liberación en base de datos
+    assert not CartItem.objects.filter(id=item_to_remove.id).exists()
+    assert not StockReservation.objects.filter(cart_item_id=item_to_remove.id).exists()
+    assert get_available_variant_stock(variant) == variant.stock_quantity
+
+
+@pytest.mark.django_db
+def test_delete_cart_item_expired_reservation(auth_client, customer_user, variant):
+    """AC-HU-14-2: Si la reserva asociada ya expiró, el ítem se elimina normalmente sin error."""
+    auth_client.post(CART_ITEMS_URL, data={"variant_id": variant.id, "quantity": 1})
+    item = CartItem.objects.get(cart__user=customer_user, variant=variant)
+
+    # Vencer la reserva manualmente
+    item.reservation.expires_at = timezone.now() - timedelta(minutes=5)
+    item.reservation.save(update_fields=["expires_at"])
+
+    response = auth_client.delete(f"/api/v1/cart/items/{item.id}/")
+
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert data["total_items"] == 0
+    assert data["total_price"] == "0"
+    assert data["items"] == []
+    assert not CartItem.objects.filter(id=item.id).exists()
+
+
+@pytest.mark.django_db
+def test_delete_cart_item_last_item(auth_client, customer_user, variant):
+    """AC-HU-14-3: Al eliminar el último ítem, el carrito queda vacío.
+
+    total_items=0 y total_price=0.
+    """
+    auth_client.post(CART_ITEMS_URL, data={"variant_id": variant.id, "quantity": 3})
+    item = CartItem.objects.get(cart__user=customer_user, variant=variant)
+
+    response = auth_client.delete(f"/api/v1/cart/items/{item.id}/")
+
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert data["total_items"] == 0
+    assert data["total_price"] == "0"
+    assert data["items"] == []
+    assert not CartItem.objects.filter(id=item.id).exists()
+
+
+@pytest.mark.django_db
+def test_delete_cart_item_unauthenticated(api_client, customer_user, variant):
+    """Petición anónima retorna 401 Unauthorized y no modifica el carrito."""
+    cart = Cart.objects.create(user=customer_user)
+    item = CartItem.objects.create(cart=cart, variant=variant, quantity=1)
+
+    response = api_client.delete(f"/api/v1/cart/items/{item.id}/")
+
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+    data = response.json()
+    assert data["code"] == "not_authenticated"
+    assert CartItem.objects.filter(id=item.id).exists()
+
+
+@pytest.mark.django_db
+def test_delete_cart_item_nonexistent(auth_client):
+    """Intentar eliminar un item_id inexistente retorna 404 Not Found."""
+    response = auth_client.delete("/api/v1/cart/items/999999/")
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    data = response.json()
+    assert data["code"] == "not_found"
+
+
+@pytest.mark.django_db
+def test_delete_cart_item_isolation(
+    auth_client, other_auth_client, customer_user, other_customer_user, variant
+):
+    """Cliente A no puede eliminar ítems del carrito de Cliente B (retorna 404 y queda intacto)."""
+    # Cliente 2 agrega ítem
+    other_auth_client.post(CART_ITEMS_URL, data={"variant_id": variant.id, "quantity": 1})
+    item_b = CartItem.objects.get(cart__user=other_customer_user, variant=variant)
+
+    # Cliente 1 intenta eliminar el ítem de Cliente 2
+    response = auth_client.delete(f"/api/v1/cart/items/{item_b.id}/")
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    data = response.json()
+    assert data["code"] == "not_found"
+    assert CartItem.objects.filter(id=item_b.id).exists()
+
+
+@pytest.mark.django_db
+def test_delete_cart_item_supports_without_trailing_slash(auth_client, customer_user, variant):
+    """Verifica que /api/v1/cart/items/<id> sin slash final funcione correctamente."""
+    auth_client.post(CART_ITEMS_URL, data={"variant_id": variant.id, "quantity": 1})
+    item = CartItem.objects.get(cart__user=customer_user, variant=variant)
+
+    response = auth_client.delete(f"/api/v1/cart/items/{item.id}")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert not CartItem.objects.filter(id=item.id).exists()

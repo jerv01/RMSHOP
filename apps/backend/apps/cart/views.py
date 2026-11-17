@@ -1,6 +1,6 @@
 from django.db.models import Prefetch, prefetch_related_objects
 from drf_spectacular.utils import extend_schema
-from rest_framework import status
+from rest_framework import exceptions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -9,7 +9,7 @@ from apps.cart.serializers import (
     CartItemAddInputSerializer,
     CartOutputSerializer,
 )
-from apps.cart.services import add_to_cart
+from apps.cart.services import add_to_cart, remove_from_cart
 from apps.users.permissions import IsCustomer
 
 
@@ -71,4 +71,27 @@ class CartItemAddView(APIView):
         )
 
         cart = _prefetch_cart_items(cart_item.cart)
+        return Response(CartOutputSerializer(cart).data, status=status.HTTP_200_OK)
+
+
+class CartItemDetailView(APIView):
+    """Elimina un ítem específico del carrito de compras y libera su reserva (HU-14)."""
+
+    permission_classes = [IsCustomer]
+
+    @extend_schema(
+        summary="Eliminar ítem del carrito",
+        description=(
+            "Elimina un ítem del carrito del cliente autenticado y libera inmediatamente "
+            "la reserva de stock asociada. Retorna el estado actualizado del carrito."
+        ),
+        responses={200: CartOutputSerializer, 404: None},
+    )
+    def delete(self, request, item_id: int):
+        try:
+            cart = remove_from_cart(user=request.user, item_id=item_id)
+        except CartItem.DoesNotExist:
+            raise exceptions.NotFound("El ítem de carrito no existe.") from None
+
+        _prefetch_cart_items(cart)
         return Response(CartOutputSerializer(cart).data, status=status.HTTP_200_OK)
