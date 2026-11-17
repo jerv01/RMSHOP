@@ -1,8 +1,11 @@
+import math
+
+from django.core.exceptions import ObjectDoesNotExist
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from apps.cart.models import Cart, CartItem, StockReservation
+from apps.cart.models import Cart, CartItem
 
 
 class CartItemAddInputSerializer(serializers.Serializer):
@@ -80,26 +83,27 @@ class CartItemOutputSerializer(serializers.ModelSerializer):
     def get_reservation_expires_at(self, obj: CartItem):
         try:
             return obj.reservation.expires_at
-        except StockReservation.DoesNotExist, AttributeError:
+        except ObjectDoesNotExist, AttributeError:
             return None
 
     @extend_schema_field(serializers.BooleanField())
     def get_is_reservation_active(self, obj: CartItem) -> bool:
         try:
             return obj.reservation.is_active()
-        except StockReservation.DoesNotExist, AttributeError:
+        except ObjectDoesNotExist, AttributeError:
             return False
 
     @extend_schema_field(serializers.IntegerField(allow_null=True))
     def get_time_remaining_seconds(self, obj: CartItem) -> int | None:
         try:
             res = obj.reservation
-            if not res.is_active():
-                return 0
-            diff = (res.expires_at - timezone.now()).total_seconds()
-            return max(0, int(diff))
-        except StockReservation.DoesNotExist, AttributeError:
+        except ObjectDoesNotExist, AttributeError:
             return None
+
+        diff = (res.expires_at - timezone.now()).total_seconds()
+        if diff <= 0:
+            return 0
+        return math.ceil(diff)
 
 
 class CartOutputSerializer(serializers.ModelSerializer):

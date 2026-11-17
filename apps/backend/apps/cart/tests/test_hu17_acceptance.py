@@ -1,13 +1,13 @@
+import threading
 from datetime import timedelta
 from decimal import Decimal
-import threading
 
 import pytest
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from apps.cart.models import Cart, CartItem, StockReservation
+from apps.cart.models import Cart, StockReservation
 from apps.cart.services import (
     add_to_cart,
     convert_cart_to_sale,
@@ -278,9 +278,7 @@ def test_ac_hu_17_3_checkout_converts_reservation_to_sale_and_does_not_release(
 
 
 @pytest.mark.django_db
-def test_ac_hu_17_3_convert_cart_to_sale_multiple_items(
-    client_a_user, single_stock_product
-):
+def test_ac_hu_17_3_convert_cart_to_sale_multiple_items(client_a_user, single_stock_product):
     product, variant1 = single_stock_product
     variant2 = ProductVariant.objects.create(
         product=product,
@@ -309,9 +307,7 @@ def test_ac_hu_17_3_convert_cart_to_sale_multiple_items(
 
 
 @pytest.mark.django_db
-def test_ac_hu_17_3_cannot_convert_expired_reservation_to_sale(
-    client_a_user, single_stock_product
-):
+def test_ac_hu_17_3_cannot_convert_expired_reservation_to_sale(client_a_user, single_stock_product):
     product, variant = single_stock_product
     cart_item, reservation = add_to_cart(user=client_a_user, variant_id=variant.id, quantity=1)
 
@@ -326,3 +322,78 @@ def test_ac_hu_17_3_cannot_convert_expired_reservation_to_sale(
     # El stock físico no se modificó
     variant.refresh_from_db()
     assert variant.stock_quantity == 1
+
+
+# ---------------------------------------------------------------------------
+# Casos límite y Concurrencia de Auditoría Argon
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_convert_cart_to_sale_prevents_double_stock_deduction(
+    client_a_user, single_stock_product
+):
+    """Argon Finding: Prevenir doble descuento (Double-Spend) en checkout simultáneo.
+
+    Si dos hilos disparan checkout sobre el mismo carrito al mismo tiempo,
+    únicamente se descuenta la reserva una sola vez (stock 5 -> 4, no 3).
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    from django.db import connection
+
+    product, variant = single_stock_product
+    variant.stock_quantity = 5
+    variant.save(update_fields=["stock_quantity"])
+
+    add_to_cart(user=client_a_user, variant_id=variant.id, quantity=1)
+    cart = Cart.objects.get(user=client_a_user)
+
+    def attempt_checkout():
+        try:
+            return ("success", convert_cart_to_sale(cart=cart, order_reference="ORD-RACE"))
+        except Exception as exc:
+            return ("error", str(exc))
+        finally:
+            connection.close()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        f1 = executor.submit(attempt_checkout)
+        f2 = executor.submit(attempt_checkout)
+        results = [f1.result(), f2.result()]
+
+    # Exactamente una ejecución generó la venta (descuento de stock)
+    movements_generated = [r[1] for r in results if r[0] == "success" and len(r[1]) > 0]
+    assert len(movements_generated) == 1
+    assert len(movements_generated[0]) == 1
+
+    variant.refresh_from_db()
+    # El stock físico debe ser exactamente 4 (5 - 1)
+    assert variant.stock_quantity == 4
+    # Solo debe existir 1 movimiento de stock registrado
+    assert StockMovement.objects.filter(variant=variant).count() == 1
+
+
+@pytest.mark.django_db
+def test_re_adding_same_variant_after_own_reservation_expired_succeeds(
+    client_a_user, single_stock_product
+):
+    """Argon Finding: Cantidad fantasma tras expiración.
+
+    Cliente A reserva la única unidad disponible (stock=1), deja pasar >15 min (expira)
+    y luego intenta agregar nuevamente 1 unidad. No debe fallar con out_of_stock.
+    """
+    product, variant = single_stock_product
+    assert variant.stock_quantity == 1
+
+    cart_item, res = add_to_cart(user=client_a_user, variant_id=variant.id, quantity=1)
+    # Forzar expiración
+    StockReservation.objects.filter(id=res.id).update(
+        expires_at=timezone.now() - timedelta(seconds=10)
+    )
+
+    # El cliente vuelve a agregar 1 unidad de la variante ahora liberada
+    updated_item, new_res = add_to_cart(user=client_a_user, variant_id=variant.id, quantity=1)
+    assert updated_item.quantity == 1
+    assert new_res.is_active() is True
+    assert get_available_variant_stock(variant) == 0
