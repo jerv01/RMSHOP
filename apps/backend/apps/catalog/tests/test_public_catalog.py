@@ -1,9 +1,13 @@
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
+from django.utils import timezone
 from rest_framework import status
 
+from apps.cart.models import Cart, CartItem, StockReservation
 from apps.catalog.models import Category, Product, ProductStatus, ProductVariant
+from apps.users.models import User
 
 
 @pytest.mark.django_db
@@ -116,3 +120,61 @@ def test_public_product_detail_by_slug(api_client):
     assert (
         api_client.get("/api/v1/products/camiseta-detalle").status_code == status.HTTP_404_NOT_FOUND
     )
+
+
+@pytest.mark.django_db
+def test_public_product_detail_reflects_active_reservation_as_out_of_stock(api_client):
+    """HU-17 / AC-HU-17-1: Variante con stock físico 1 reservada en carrito aparece agotada."""
+    category = Category.objects.get(slug="camisetas-tops")
+    product = Product.objects.create(
+        name="Camiseta Reserva",
+        slug="camiseta-reserva",
+        description="Ficha pública.",
+        price=Decimal("90000"),
+        material="Algodón",
+        category=category,
+        status=ProductStatus.PUBLISHED,
+    )
+    variant = ProductVariant.objects.create(
+        product=product,
+        color="Negro",
+        size="M",
+        stock_quantity=1,
+    )
+
+    # 1. Antes de reservar: disponible
+    res = api_client.get(f"/api/v1/products/{product.slug}")
+    assert res.status_code == status.HTTP_200_OK
+    assert res.json()["in_stock"] is True
+    assert res.json()["variants"][0]["stock_quantity"] == 1
+    assert res.json()["variants"][0]["is_available"] is True
+
+    # 2. Cliente reserva la unidad por 15 min
+    user = User.objects.create(clerk_user_id="user_res_test", email="user_res@rmshop.co")
+    cart = Cart.objects.create(user=user)
+    cart_item = CartItem.objects.create(cart=cart, variant=variant, quantity=1)
+    StockReservation.objects.create(
+        cart_item=cart_item,
+        variant=variant,
+        quantity=1,
+        expires_at=timezone.now() + timedelta(minutes=15),
+    )
+
+    # 3. Consulta pública: aparece agotada
+    res_reserved = api_client.get(f"/api/v1/products/{product.slug}")
+    assert res_reserved.status_code == status.HTTP_200_OK
+    data = res_reserved.json()
+    assert data["in_stock"] is False
+    assert data["variants"][0]["stock_quantity"] == 0
+    assert data["variants"][0]["is_available"] is False
+
+    # 4. Al expirar la reserva: vuelve a estar disponible
+    cart_item.reservation.expires_at = timezone.now() - timedelta(seconds=1)
+    cart_item.reservation.save()
+
+    res_expired = api_client.get(f"/api/v1/products/{product.slug}")
+    assert res_expired.status_code == status.HTTP_200_OK
+    assert res_expired.json()["in_stock"] is True
+    assert res_expired.json()["variants"][0]["stock_quantity"] == 1
+    assert res_expired.json()["variants"][0]["is_available"] is True
+
