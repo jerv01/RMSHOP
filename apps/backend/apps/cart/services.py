@@ -406,3 +406,109 @@ def convert_cart_to_sale(
         item.delete()
 
     return movements
+
+
+@transaction.atomic
+def release_expired_reservations(*, delete_cart_items: bool = False) -> int:
+    """Libera y elimina registros de reservas de stock que hayan superado su tiempo de expiración (HU-18).
+
+    Reglas de negocio:
+    - Identifica reservas con expires_at <= timezone.now().
+    - Bloquea los registros a eliminar con select_for_update(of=("self",)).
+    - Si delete_cart_items=True, elimina los CartItem asociados (eliminando la reserva en cascada).
+    - Si delete_cart_items=False, elimina únicamente la StockReservation, permitiendo al CartItem
+      persistir en el carrito con estado 'expired' y mensaje 'Tu reserva expiró' para re-confirmación.
+    - Cero duplicados: la eliminación es idempotente.
+    - Retorna el conteo de reservas liberadas.
+    """
+    now = timezone.now()
+    expired_reservations = list(
+        StockReservation.objects.select_for_update(of=("self",))
+        .filter(expires_at__lte=now)
+        .values_list("id", "cart_item_id")
+    )
+    if not expired_reservations:
+        return 0
+
+    res_ids = [r[0] for r in expired_reservations]
+    cart_item_ids = [r[1] for r in expired_reservations if r[1] is not None]
+
+    if delete_cart_items and cart_item_ids:
+        CartItem.objects.filter(id__in=cart_item_ids).delete()
+    else:
+        StockReservation.objects.filter(id__in=res_ids).delete()
+
+    return len(res_ids)
+
+
+@transaction.atomic
+def re_reserve_cart_item(
+    *,
+    user: User,
+    item_id: int,
+) -> tuple[CartItem, StockReservation]:
+    """Re-reserva o confirma de nuevo el stock para un ítem del carrito cuya reserva expiró (HU-18).
+
+    Reglas de negocio:
+    - Busca el CartItem asegurando pertenencia al carrito del usuario (cart__user=user).
+      Si no existe, lanza CartItem.DoesNotExist.
+    - Bloquea atómicamente la variante con select_for_update(of=("self",)).
+    - Si el producto ya no está PUBLISHED, lanza ValidationError con mensaje descriptivo.
+    - Verifica el stock disponible actual (excluyendo la reserva previa si existiera):
+      available_stock = get_available_variant_stock(variant, exclude_reservation_id=res_id).
+    - Si item.quantity > available_stock:
+      Lanza ApiError con code='out_of_stock' informando el stock máximo disponible.
+    - Renueva StockReservation con quantity=item.quantity y expires_at = now + 15 min.
+    - Retorna (cart_item, reservation).
+    """
+    try:
+        item_meta = CartItem.objects.values("id", "variant_id").get(id=item_id, cart__user=user)
+    except CartItem.DoesNotExist:
+        raise CartItem.DoesNotExist(
+            f"El ítem #{item_id} no existe en el carrito del usuario."
+        ) from None
+
+    variant = (
+        ProductVariant.objects.select_for_update(of=("self",))
+        .select_related("product")
+        .get(id=item_meta["variant_id"])
+    )
+
+    if variant.product.status != ProductStatus.PUBLISHED:
+        raise ValidationError(
+            {"variant_id": ["El producto no se encuentra disponible para la venta."]}
+        )
+
+    cart_item = (
+        CartItem.objects.select_for_update(of=("self", "cart"))
+        .select_related("cart", "variant", "reservation")
+        .get(id=item_id, cart__user=user)
+    )
+
+    try:
+        existing_res_id = cart_item.reservation.id
+    except ObjectDoesNotExist:
+        existing_res_id = None
+
+    available_stock = get_available_variant_stock(variant, exclude_reservation_id=existing_res_id)
+    if cart_item.quantity > available_stock:
+        raise ApiError(
+            detail=(
+                f"No hay disponibilidad suficiente para re-reservar esta prenda. "
+                f"El stock máximo disponible es {available_stock}."
+            ),
+            code="out_of_stock",
+            fields={"max_available": available_stock},
+        )
+
+    expires_at = timezone.now() + timedelta(minutes=RESERVATION_DURATION_MINUTES)
+    reservation, _ = StockReservation.objects.update_or_create(
+        cart_item=cart_item,
+        defaults={
+            "variant": variant,
+            "quantity": cart_item.quantity,
+            "expires_at": expires_at,
+        },
+    )
+
+    return cart_item, reservation

@@ -3,6 +3,7 @@ from decimal import Decimal
 
 import pytest
 from django.core.exceptions import ValidationError
+from django.core.management import call_command
 from django.utils import timezone
 
 from apps.cart.models import Cart, CartItem, StockReservation
@@ -12,6 +13,8 @@ from apps.cart.services import (
     convert_cart_to_sale,
     convert_reservation_to_sale,
     get_available_variant_stock,
+    re_reserve_cart_item,
+    release_expired_reservations,
     remove_from_cart,
     update_cart_item_quantity,
 )
@@ -691,3 +694,101 @@ def test_convert_cart_to_sale_item_missing_reservation_raises_api_error(user, va
         convert_cart_to_sale(cart=cart)
 
     assert exc_info.value.get_codes() == "reservation_missing"
+
+
+# ============================================================================
+# HU-18: Pruebas unitarias de release_expired_reservations y re_reserve_cart_item
+# ============================================================================
+
+
+@pytest.mark.django_db
+def test_release_expired_reservations_keeps_cart_items_by_default(user, variant):
+    """Por defecto, release_expired_reservations elimina la reserva y preserva el CartItem."""
+    item, res = add_to_cart(user=user, variant_id=variant.id, quantity=2)
+    # Forzar expiración
+    res.expires_at = timezone.now() - timedelta(seconds=1)
+    res.save()
+
+    count = release_expired_reservations(delete_cart_items=False)
+
+    assert count == 1
+    assert not StockReservation.objects.filter(id=res.id).exists()
+    assert CartItem.objects.filter(id=item.id).exists()
+
+
+@pytest.mark.django_db
+def test_release_expired_reservations_removes_cart_items_when_requested(user, variant):
+    """Con delete_cart_items=True, se eliminan también los CartItems asociados."""
+    item, res = add_to_cart(user=user, variant_id=variant.id, quantity=1)
+    res.expires_at = timezone.now() - timedelta(seconds=1)
+    res.save()
+
+    count = release_expired_reservations(delete_cart_items=True)
+
+    assert count == 1
+    assert not StockReservation.objects.filter(id=res.id).exists()
+    assert not CartItem.objects.filter(id=item.id).exists()
+
+
+@pytest.mark.django_db
+def test_release_expired_reservations_ignores_active(user, variant):
+    """Las reservas activas no son afectadas por la liberación."""
+    item, res = add_to_cart(user=user, variant_id=variant.id, quantity=1)
+
+    count = release_expired_reservations(delete_cart_items=False)
+
+    assert count == 0
+    assert StockReservation.objects.filter(id=res.id).exists()
+
+
+@pytest.mark.django_db
+def test_re_reserve_cart_item_success(user, variant):
+    """Re-reservar un ítem cuya reserva expiró renueva expires_at y recupera vigencia."""
+    item, res = add_to_cart(user=user, variant_id=variant.id, quantity=2)
+    res.expires_at = timezone.now() - timedelta(minutes=1)
+    res.save()
+
+    updated_item, new_res = re_reserve_cart_item(user=user, item_id=item.id)
+
+    assert updated_item.id == item.id
+    assert new_res.is_active() is True
+    assert new_res.quantity == 2
+
+
+@pytest.mark.django_db
+def test_re_reserve_cart_item_out_of_stock_fails(user, other_user, variant):
+    """Si el stock fue tomado por otro cliente mientras expiraba, re-reservar falla con out_of_stock."""
+    variant.stock_quantity = 2
+    variant.save()
+
+    item_a, res_a = add_to_cart(user=user, variant_id=variant.id, quantity=2)
+    # A expira
+    res_a.expires_at = timezone.now() - timedelta(minutes=1)
+    res_a.save()
+
+    # B toma las 2 unidades disponibles
+    add_to_cart(user=other_user, variant_id=variant.id, quantity=2)
+
+    # A intenta re-reservar
+    with pytest.raises(ApiError) as exc_info:
+        re_reserve_cart_item(user=user, item_id=item_a.id)
+
+    assert exc_info.value.get_codes() == "out_of_stock"
+    assert exc_info.value.fields.get("max_available") == 0
+
+
+@pytest.mark.django_db
+def test_cleanup_expired_reservations_management_command(user, variant):
+    """El comando de management cleanup_expired_reservations ejecuta la limpieza."""
+    from io import StringIO
+
+    item, res = add_to_cart(user=user, variant_id=variant.id, quantity=1)
+    res.expires_at = timezone.now() - timedelta(seconds=1)
+    res.save()
+
+    out = StringIO()
+    call_command("cleanup_expired_reservations", stdout=out)
+
+    assert "Se liberaron 1 reservas expiradas." in out.getvalue()
+    assert not StockReservation.objects.filter(id=res.id).exists()
+
