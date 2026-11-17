@@ -49,7 +49,10 @@ INSTALLED_APPS = [
     "apps.catalog",
     "apps.inventory",
     "apps.notifications",
+    "apps.cart",
 ]
+
+AUTH_USER_MODEL = "users.User"
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
