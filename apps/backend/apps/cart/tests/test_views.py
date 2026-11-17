@@ -233,6 +233,65 @@ def test_cart_endpoints_support_without_trailing_slash(auth_client, variant):
     assert res_get.status_code == status.HTTP_200_OK
 
 
+@pytest.mark.django_db
+def test_cart_item_outputs_time_remaining_seconds_and_handles_expiration(auth_client, variant):
+    """HU-17: Retorna time_remaining_seconds para cuenta regresiva precisa en frontend.
+
+    Al agregar: entre 895 y 900 segundos (tolerancia +-5s sobre 15 min).
+    Al expirar la reserva: retorna 0 segundos y is_reservation_active=False.
+    """
+    post_res = auth_client.post(CART_ITEMS_URL, data={"variant_id": variant.id, "quantity": 1})
+    assert post_res.status_code == status.HTTP_200_OK
+    item = post_res.json()["items"][0]
+
+    assert "time_remaining_seconds" in item
+    assert 895 <= item["time_remaining_seconds"] <= 900
+    assert item["is_reservation_active"] is True
+
+    # Simular paso del tiempo hasta vencer la reserva
+    cart_item = CartItem.objects.get(id=item["id"])
+    cart_item.reservation.expires_at = timezone.now() - timedelta(seconds=1)
+    cart_item.reservation.save()
+
+    get_res = auth_client.get(CART_URL)
+    assert get_res.status_code == status.HTTP_200_OK
+    expired_item = get_res.json()["items"][0]
+
+    assert expired_item["time_remaining_seconds"] == 0
+    assert expired_item["is_reservation_active"] is False
+
+
+@pytest.mark.django_db
+def test_cart_item_outputs_reservation_status_and_message_on_expiry(auth_client, variant):
+    """HU-18: Retorna reservation_status y mensaje 'Tu reserva expiró' al vencer la reserva."""
+    post_res = auth_client.post(CART_ITEMS_URL, data={"variant_id": variant.id, "quantity": 1})
+    assert post_res.status_code == status.HTTP_200_OK
+    item = post_res.json()["items"][0]
+
+    assert item["reservation_status"] == "active"
+    assert item["reservation_message"] is None
+
+    # Expirar la reserva
+    cart_item = CartItem.objects.get(id=item["id"])
+    cart_item.reservation.expires_at = timezone.now() - timedelta(seconds=1)
+    cart_item.reservation.save()
+
+    get_res = auth_client.get(CART_URL)
+    assert get_res.status_code == status.HTTP_200_OK
+    expired_item = get_res.json()["items"][0]
+
+    assert expired_item["reservation_status"] == "expired"
+    assert expired_item["reservation_message"] == "Tu reserva expiró"
+
+    # Si la reserva es eliminada físicamente (limpieza de expiradas), sigue marcándose expirada
+    cart_item.reservation.delete()
+    get_res2 = auth_client.get(CART_URL)
+    assert get_res2.status_code == status.HTTP_200_OK
+    cleaned_item = get_res2.json()["items"][0]
+    assert cleaned_item["reservation_status"] == "expired"
+    assert cleaned_item["reservation_message"] == "Tu reserva expiró"
+
+
 # ---------------------------------------------------------------------------
 # AC-HU-13-2: Unauthenticated
 # ---------------------------------------------------------------------------
@@ -731,3 +790,75 @@ def test_patch_cart_item_supports_without_trailing_slash(auth_client, customer_u
     assert response.status_code == status.HTTP_200_OK
     item.refresh_from_db()
     assert item.quantity == 3
+
+
+# ---------------------------------------------------------------------------
+# HU-18: POST /api/v1/cart/items/<id>/re-reserve/
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_re_reserve_cart_item_view_success(auth_client, customer_user, variant):
+    """POST /cart/items/<id>/re-reserve renueva la reserva de 15 min de un ítem expirado."""
+    auth_client.post(CART_ITEMS_URL, data={"variant_id": variant.id, "quantity": 1})
+    item = CartItem.objects.get(cart__user=customer_user, variant=variant)
+
+    # Expirar la reserva
+    item.reservation.expires_at = timezone.now() - timedelta(minutes=5)
+    item.reservation.save()
+
+    response = auth_client.post(f"/api/v1/cart/items/{item.id}/re-reserve/")
+
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    re_reserved = next(i for i in data["items"] if i["id"] == item.id)
+    assert re_reserved["reservation_status"] == "active"
+    assert re_reserved["is_reservation_active"] is True
+    assert re_reserved["reservation_message"] is None
+    assert 895 <= re_reserved["time_remaining_seconds"] <= 900
+
+
+@pytest.mark.django_db
+def test_re_reserve_cart_item_view_out_of_stock(
+    auth_client, other_auth_client, customer_user, other_customer_user, variant
+):
+    """Si no hay stock disponible para re-reservar, retorna 400 out_of_stock."""
+    variant.stock_quantity = 1
+    variant.save()
+
+    auth_client.post(CART_ITEMS_URL, data={"variant_id": variant.id, "quantity": 1})
+    item = CartItem.objects.get(cart__user=customer_user, variant=variant)
+
+    # A expira
+    item.reservation.expires_at = timezone.now() - timedelta(minutes=5)
+    item.reservation.save()
+
+    # B toma la unidad
+    other_auth_client.post(CART_ITEMS_URL, data={"variant_id": variant.id, "quantity": 1})
+
+    # A intenta re-reservar
+    response = auth_client.post(f"/api/v1/cart/items/{item.id}/re-reserve/")
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    data = response.json()
+    assert data["code"] == "out_of_stock"
+    assert "No hay disponibilidad suficiente" in data["message"]
+
+
+@pytest.mark.django_db
+def test_re_reserve_cart_item_view_isolation_not_found(
+    auth_client, other_auth_client, customer_user, other_customer_user, variant
+):
+    """Cliente A no puede re-reservar ítems del carrito de Cliente B (retorna 404)."""
+    other_auth_client.post(CART_ITEMS_URL, data={"variant_id": variant.id, "quantity": 1})
+    item_b = CartItem.objects.get(cart__user=other_customer_user, variant=variant)
+
+    response = auth_client.post(f"/api/v1/cart/items/{item_b.id}/re-reserve/")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.django_db
+def test_re_reserve_cart_item_unauthenticated(api_client, variant):
+    """Llamada sin autenticación retorna 401 Not Authenticated."""
+    response = api_client.post("/api/v1/cart/items/9999/re-reserve/")
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED

@@ -1,3 +1,4 @@
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from apps.catalog.models import (
@@ -147,12 +148,53 @@ class ProductVariantBulkCreateSerializer(serializers.Serializer):
     )
 
 
+class PublicProductVariantSerializer(serializers.ModelSerializer):
+    """Variante de producto para catálogo público con stock disponible en tiempo real (HU-17)."""
+
+    stock_quantity = serializers.SerializerMethodField()
+    available_quantity = serializers.SerializerMethodField()
+    is_available = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProductVariant
+        fields = [
+            "id",
+            "product_id",
+            "color",
+            "size",
+            "stock_quantity",
+            "available_quantity",
+            "is_available",
+            "created_at",
+            "updated_at",
+        ]
+
+    def _get_available_stock(self, obj: ProductVariant) -> int:
+        if hasattr(obj, "available_stock"):
+            return max(0, obj.available_stock)
+        from apps.cart.services import get_available_variant_stock
+
+        return get_available_variant_stock(obj)
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_stock_quantity(self, obj: ProductVariant) -> int:
+        return self._get_available_stock(obj)
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_available_quantity(self, obj: ProductVariant) -> int:
+        return self._get_available_stock(obj)
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_available(self, obj: ProductVariant) -> bool:
+        return self._get_available_stock(obj) > 0
+
+
 class PublicProductSerializer(serializers.ModelSerializer):
     """Producto publicado para el catálogo público y su ficha de detalle (HU-1, HU-2, HU-3)."""
 
     category = CategorySerializer(read_only=True)
     images = ProductImageSerializer(many=True, read_only=True)
-    variants = ProductVariantSerializer(many=True, read_only=True)
+    variants = PublicProductVariantSerializer(many=True, read_only=True)
     in_stock = serializers.SerializerMethodField()
 
     class Meta:
@@ -174,5 +216,16 @@ class PublicProductSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
+    @extend_schema_field(serializers.BooleanField())
     def get_in_stock(self, obj: Product) -> bool:
-        return any(variant.stock_quantity > 0 for variant in obj.variants.all())
+        from apps.cart.services import get_available_variant_stock
+
+        return any(
+            (
+                getattr(variant, "available_stock", None)
+                if hasattr(variant, "available_stock")
+                else get_available_variant_stock(variant)
+            )
+            > 0
+            for variant in obj.variants.all()
+        )

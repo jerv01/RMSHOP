@@ -1,4 +1,7 @@
+from django.db.models import F, Prefetch, Q, Sum
+from django.db.models.functions import Coalesce, Greatest
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -6,7 +9,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.catalog.models import Category, Product, ProductStatus
+from apps.catalog.models import Category, Product, ProductStatus, ProductVariant
 from apps.catalog.serializers import (
     CategorySerializer,
     ProductCreateSerializer,
@@ -320,14 +323,33 @@ class AdminProductVariantDetailView(APIView):
 
 
 def _published_products_queryset():
-    """Retorna únicamente productos publicados que tienen al menos una variante (HU-1)."""
+    """Retorna únicamente productos publicados que tienen al menos una variante (HU-1).
+
+    Optimizado para calcular stock disponible al vuelo descontando reservas activas (HU-17).
+    """
+    now = timezone.now()
+    active_reserved_expr = Coalesce(
+        Sum(
+            "reservations__quantity",
+            filter=Q(reservations__expires_at__gt=now),
+        ),
+        0,
+    )
+    variants_qs = ProductVariant.objects.annotate(
+        _active_reserved=active_reserved_expr,
+        available_stock=Greatest(0, F("stock_quantity") - F("_active_reserved")),
+    )
+
     return (
         Product.objects.filter(
             status=ProductStatus.PUBLISHED,
             variants__isnull=False,
         )
         .select_related("category")
-        .prefetch_related("images", "variants")
+        .prefetch_related(
+            "images",
+            Prefetch("variants", queryset=variants_qs),
+        )
         .distinct()
         .order_by("-created_at", "-id")
     )

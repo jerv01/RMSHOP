@@ -7,6 +7,7 @@ from django.utils import timezone
 from apps.cart.models import Cart, CartItem, StockReservation
 from apps.catalog.models import ProductStatus, ProductVariant
 from apps.core.exceptions import ApiError
+from apps.inventory.models import StockMovement
 from apps.users.models import User
 
 RESERVATION_DURATION_MINUTES = 15
@@ -73,13 +74,24 @@ def add_to_cart(
     cart, _ = Cart.objects.get_or_create(user=user)
 
     cart_item = (
-        CartItem.objects.select_related("reservation").filter(cart=cart, variant=variant).first()
+        CartItem.objects.select_for_update(of=("self",))
+        .select_related("reservation")
+        .filter(cart=cart, variant=variant)
+        .first()
     )
-    current_qty = cart_item.quantity if cart_item else 0
-    try:
-        existing_res_id = cart_item.reservation.id if cart_item else None
-    except ObjectDoesNotExist:
-        existing_res_id = None
+
+    existing_res_id = None
+    has_active_reservation = False
+    if cart_item is not None:
+        try:
+            existing_res = cart_item.reservation
+            existing_res_id = existing_res.id
+            has_active_reservation = existing_res.is_active()
+        except ObjectDoesNotExist:
+            existing_res_id = None
+
+    # Si el ítem previo en el carrito ya había expirado, no arrastramos su cantidad fantasma
+    current_qty = cart_item.quantity if (cart_item and has_active_reservation) else 0
     target_qty = current_qty + quantity
 
     available_stock = get_available_variant_stock(variant, exclude_reservation_id=existing_res_id)
@@ -212,5 +224,315 @@ def update_cart_item_quantity(
             "expires_at": expires_at,
         },
     )
+
+    return cart_item, reservation
+
+
+@transaction.atomic
+def convert_reservation_to_sale(
+    *,
+    reservation_id: int | None = None,
+    reservation: StockReservation | None = None,
+    admin_user: User | None = None,
+    order_reference: str = "",
+) -> StockMovement:
+    """Convierte una reserva activa en una venta definitiva descontando stock físico (AC-HU-17-3).
+
+    Reglas de negocio (HU-17 y HU-37):
+    - Concurrencia atómica con select_for_update en ProductVariant.
+    - Valida que la reserva exista y esté activa (expires_at > now). Si expiró,
+      lanza ApiError(code="reservation_expired").
+    - Descuenta reservation.quantity del stock_quantity físico de la variante.
+    - Crea un StockMovement de auditoría con delta negativo y motivo de venta (HU-37).
+    - Elimina la reserva de stock y el CartItem asociado (el stock no se libera, se consolida).
+    - Retorna la instancia de StockMovement creada.
+    """
+    if reservation is None and reservation_id is None:
+        raise ValueError("Se debe proporcionar reservation o reservation_id.")
+
+    res_id = reservation.id if reservation is not None else reservation_id
+
+    # 1. Obtener variant_id de la reserva
+    try:
+        res_meta = StockReservation.objects.values("id", "variant_id").get(id=res_id)
+    except StockReservation.DoesNotExist:
+        raise StockReservation.DoesNotExist(f"La reserva #{res_id} no existe.") from None
+
+    # 2. Bloqueo canónico de fila en ProductVariant
+    variant = ProductVariant.objects.select_for_update(of=("self",)).get(id=res_meta["variant_id"])
+
+    # 3. Bloqueo de la reserva y CartItem
+    active_res = (
+        StockReservation.objects.select_for_update(of=("self", "cart_item"))
+        .select_related("cart_item")
+        .get(id=res_id)
+    )
+
+    if not active_res.is_active():
+        raise ApiError(
+            detail="La reserva de stock ha expirado y no puede convertirse en venta.",
+            code="reservation_expired",
+        )
+
+    if variant.stock_quantity < active_res.quantity:
+        raise ApiError(
+            detail="Inconsistencia de stock al procesar la venta.",
+            code="insufficient_stock",
+        )
+
+    new_stock = variant.stock_quantity - active_res.quantity
+    variant.stock_quantity = new_stock
+    variant.save(update_fields=["stock_quantity", "updated_at"])
+
+    reason_str = (
+        f"Venta checkout {order_reference}".strip() if order_reference else "Venta checkout pedido"
+    )
+    movement = StockMovement.objects.create(
+        variant=variant,
+        admin=admin_user,
+        delta=-active_res.quantity,
+        resulting_stock=new_stock,
+        reason=reason_str,
+    )
+
+    cart_item = active_res.cart_item
+    active_res.delete()
+    if cart_item:
+        cart_item.delete()
+
+    return movement
+
+
+@transaction.atomic
+def convert_cart_to_sale(
+    *,
+    cart: Cart,
+    admin_user: User | None = None,
+    order_reference: str = "",
+) -> list[StockMovement]:
+    """Convierte todas las reservas activas de un carrito en ventas definitivas (AC-HU-17-3).
+
+    Reglas de negocio (HU-17 y HU-37):
+    - Bloqueo en orden canónico por variant_id ascendente para prevenir deadlocks.
+    - Re-consulta y bloqueo de CartItem y StockReservation DESPUÉS de bloquear ProductVariant
+      para prevenir race conditions / double-spend ante checkouts concurrentes.
+    - Valida que todas las reservas del carrito sigan activas. Si alguna expiró,
+      lanza ApiError(code="reservation_expired").
+    - Descuenta el stock físico de cada variante y genera su correspondiente StockMovement.
+    - Elimina reservas y vacía los ítems correspondientes del carrito.
+    - Retorna la lista de StockMovement creados.
+    """
+    # 1. Identificar las variantes del carrito en orden determinista para el bloqueo canónico
+    initial_variant_ids = sorted(
+        set(CartItem.objects.filter(cart=cart).values_list("variant_id", flat=True))
+    )
+    if not initial_variant_ids:
+        return []
+
+    # 2. Bloquear primero ProductVariant en orden ascendente de ID (previene deadlocks AB-BA)
+    variants = {
+        v.id: v
+        for v in ProductVariant.objects.select_for_update(of=("self",))
+        .filter(id__in=initial_variant_ids)
+        .order_by("id")
+    }
+
+    # 3. CRÍTICO: Re-consultar y bloquear CartItem + StockReservation
+    # DESPUÉS de bloquear las variantes para evitar snapshots obsoletos en memoria.
+    items = list(
+        CartItem.objects.select_for_update(of=("self",))
+        .filter(cart=cart)
+        .select_related("reservation", "variant")
+        .order_by("variant_id")
+    )
+    if not items:
+        return []
+
+    # Si se agregó una variante nueva al carrito entre el paso 1 y el paso 3, adquirir su lock
+    missing_variant_ids = sorted(
+        {item.variant_id for item in items if item.variant_id not in variants}
+    )
+    if missing_variant_ids:
+        for v in (
+            ProductVariant.objects.select_for_update(of=("self",))
+            .filter(id__in=missing_variant_ids)
+            .order_by("id")
+        ):
+            variants[v.id] = v
+
+    now = timezone.now()
+    for item in items:
+        try:
+            res = item.reservation
+        except ObjectDoesNotExist:
+            available_stock = get_available_variant_stock(variants[item.variant_id])
+            raise ApiError(
+                detail=f"El ítem #{item.id} no posee una reserva activa.",
+                code="reservation_missing",
+                fields={"available_stock": available_stock},
+            ) from None
+        if res.expires_at <= now:
+            available_stock = get_available_variant_stock(variants[item.variant_id])
+            raise ApiError(
+                detail=f"La reserva para la variante {item.variant} ha expirado.",
+                code="reservation_expired",
+                fields={"available_stock": available_stock},
+            )
+        variant = variants[item.variant_id]
+        if variant.stock_quantity < res.quantity:
+            raise ApiError(
+                detail=f"Inconsistencia de stock al procesar la variante {variant}.",
+                code="insufficient_stock",
+            )
+
+    movements = []
+    reason_str = (
+        f"Venta checkout {order_reference}".strip() if order_reference else "Venta checkout pedido"
+    )
+
+    for item in items:
+        res = item.reservation
+        variant = variants[item.variant_id]
+        new_stock = variant.stock_quantity - res.quantity
+        variant.stock_quantity = new_stock
+        variant.save(update_fields=["stock_quantity", "updated_at"])
+
+        movement = StockMovement.objects.create(
+            variant=variant,
+            admin=admin_user,
+            delta=-res.quantity,
+            resulting_stock=new_stock,
+            reason=reason_str,
+        )
+        movements.append(movement)
+
+        # item.delete() elimina en cascada StockReservation por OneToOneField(on_delete=CASCADE)
+        item.delete()
+
+    return movements
+
+
+@transaction.atomic
+def release_expired_reservations(*, delete_cart_items: bool = False) -> int:
+    """Libera y elimina reservas de stock que hayan superado su tiempo de expiración (HU-18).
+
+    Reglas de negocio y concurrencia:
+    - Identifica reservas con expires_at <= timezone.now().
+    - Usa select_for_update(of=('self',), skip_locked=True) y orden canónico por ID para
+      evitar deadlocks y evitar que tareas background bloqueen transacciones activas.
+    - Si delete_cart_items=True, bloquea y elimina los CartItem asociados (en cascada la reserva).
+    - Si delete_cart_items=False, elimina únicamente la StockReservation, permitiendo al CartItem
+      persistir en el carrito con estado 'expired' y mensaje 'Tu reserva expiró'.
+    - Cero duplicados: la eliminación es idempotente.
+    - Retorna el conteo de reservas liberadas.
+    """
+    now = timezone.now()
+    if delete_cart_items:
+        expired_items = list(
+            CartItem.objects.select_for_update(of=("self",), skip_locked=True)
+            .filter(reservation__expires_at__lte=now)
+            .order_by("id")
+        )
+        if not expired_items:
+            return 0
+        count = len(expired_items)
+        CartItem.objects.filter(id__in=[item.id for item in expired_items]).delete()
+        return count
+
+    expired_res_ids = list(
+        StockReservation.objects.select_for_update(of=("self",), skip_locked=True)
+        .filter(expires_at__lte=now)
+        .order_by("id")
+        .values_list("id", flat=True)
+    )
+    if not expired_res_ids:
+        return 0
+
+    deleted_count, _ = StockReservation.objects.filter(id__in=expired_res_ids).delete()
+    return deleted_count
+
+
+@transaction.atomic
+def re_reserve_cart_item(
+    *,
+    user: User,
+    item_id: int,
+) -> tuple[CartItem, StockReservation]:
+    """Re-reserva o confirma de nuevo el stock para un ítem del carrito cuya reserva expiró (HU-18).
+
+    Jerarquía estricta de bloqueos (evita interbloqueos/deadlocks):
+    - Nivel 1: ProductVariant bloqueado atómicamente con select_for_update(of=('self',)).
+    - Nivel 2: CartItem bloqueado con select_for_update(of=('self',)) asegurando pertenencia.
+    - Nivel 3: StockReservation bloqueado con select_for_update(of=('self',)).
+
+    Reglas de negocio:
+    - Si el CartItem no pertenece al usuario, lanza CartItem.DoesNotExist.
+    - Si el producto ya no está PUBLISHED, lanza ValidationError.
+    - Anti-acaparamiento: Si la reserva previa aún se encuentra activa, la retorna inmediatamente
+      sin reiniciar arbitrariamente el temporizador de 15 minutos.
+    - Verifica el stock disponible actual:
+      available_stock = get_available_variant_stock(variant, exclude_reservation_id=existing_res_id)
+    - Si item.quantity > available_stock:
+      Lanza ApiError con code='out_of_stock' informando el stock disponible.
+    - Renueva o crea StockReservation con expires_at = now + 15 min.
+    - Retorna (cart_item, reservation).
+    """
+    try:
+        item_meta = CartItem.objects.values("id", "variant_id").get(id=item_id, cart__user=user)
+    except CartItem.DoesNotExist:
+        raise CartItem.DoesNotExist(
+            f"El ítem #{item_id} no existe en el carrito del usuario."
+        ) from None
+
+    variant = (
+        ProductVariant.objects.select_for_update(of=("self",))
+        .select_related("product")
+        .get(id=item_meta["variant_id"])
+    )
+
+    if variant.product.status != ProductStatus.PUBLISHED:
+        raise ValidationError(
+            {"variant_id": ["El producto no se encuentra disponible para la venta."]}
+        )
+
+    cart_item = (
+        CartItem.objects.select_for_update(of=("self",))
+        .select_related("cart", "variant")
+        .get(id=item_id, cart__user=user)
+    )
+
+    existing_reservation = (
+        StockReservation.objects.select_for_update(of=("self",)).filter(cart_item=cart_item).first()
+    )
+
+    if existing_reservation is not None and existing_reservation.is_active():
+        return cart_item, existing_reservation
+
+    existing_res_id = existing_reservation.id if existing_reservation else None
+    available_stock = get_available_variant_stock(variant, exclude_reservation_id=existing_res_id)
+    if cart_item.quantity > available_stock:
+        raise ApiError(
+            detail=(
+                f"No hay disponibilidad suficiente para re-reservar esta prenda. "
+                f"El stock máximo disponible es {available_stock}."
+            ),
+            code="out_of_stock",
+            fields={"max_available": available_stock},
+        )
+
+    expires_at = timezone.now() + timedelta(minutes=RESERVATION_DURATION_MINUTES)
+    if existing_reservation is not None:
+        existing_reservation.variant = variant
+        existing_reservation.quantity = cart_item.quantity
+        existing_reservation.expires_at = expires_at
+        existing_reservation.save(update_fields=["variant", "quantity", "expires_at"])
+        reservation = existing_reservation
+    else:
+        reservation = StockReservation.objects.create(
+            cart_item=cart_item,
+            variant=variant,
+            quantity=cart_item.quantity,
+            expires_at=expires_at,
+        )
 
     return cart_item, reservation
