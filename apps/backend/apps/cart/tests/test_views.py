@@ -233,6 +233,36 @@ def test_cart_endpoints_support_without_trailing_slash(auth_client, variant):
     assert res_get.status_code == status.HTTP_200_OK
 
 
+@pytest.mark.django_db
+def test_cart_item_outputs_time_remaining_seconds_and_handles_expiration(auth_client, variant):
+    """HU-17: Retorna time_remaining_seconds para cuenta regresiva precisa en frontend.
+
+    Al agregar: entre 895 y 900 segundos (tolerancia +-5s sobre 15 min).
+    Al expirar la reserva: retorna 0 segundos y is_reservation_active=False.
+    """
+    post_res = auth_client.post(
+        CART_ITEMS_URL, data={"variant_id": variant.id, "quantity": 1}
+    )
+    assert post_res.status_code == status.HTTP_200_OK
+    item = post_res.json()["items"][0]
+
+    assert "time_remaining_seconds" in item
+    assert 895 <= item["time_remaining_seconds"] <= 900
+    assert item["is_reservation_active"] is True
+
+    # Simular paso del tiempo hasta vencer la reserva
+    cart_item = CartItem.objects.get(id=item["id"])
+    cart_item.reservation.expires_at = timezone.now() - timedelta(seconds=1)
+    cart_item.reservation.save()
+
+    get_res = auth_client.get(CART_URL)
+    assert get_res.status_code == status.HTTP_200_OK
+    expired_item = get_res.json()["items"][0]
+
+    assert expired_item["time_remaining_seconds"] == 0
+    assert expired_item["is_reservation_active"] is False
+
+
 # ---------------------------------------------------------------------------
 # AC-HU-13-2: Unauthenticated
 # ---------------------------------------------------------------------------

@@ -1,3 +1,4 @@
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -55,6 +56,7 @@ class CartItemOutputSerializer(serializers.ModelSerializer):
     )
     reservation_expires_at = serializers.SerializerMethodField()
     is_reservation_active = serializers.SerializerMethodField()
+    time_remaining_seconds = serializers.SerializerMethodField()
 
     class Meta:
         model = CartItem
@@ -71,6 +73,7 @@ class CartItemOutputSerializer(serializers.ModelSerializer):
             "subtotal",
             "reservation_expires_at",
             "is_reservation_active",
+            "time_remaining_seconds",
         ]
 
     @extend_schema_field(serializers.DateTimeField(allow_null=True))
@@ -86,6 +89,17 @@ class CartItemOutputSerializer(serializers.ModelSerializer):
             return obj.reservation.is_active()
         except StockReservation.DoesNotExist, AttributeError:
             return False
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_time_remaining_seconds(self, obj: CartItem) -> int | None:
+        try:
+            res = obj.reservation
+            if not res.is_active():
+                return 0
+            diff = (res.expires_at - timezone.now()).total_seconds()
+            return max(0, int(diff))
+        except StockReservation.DoesNotExist, AttributeError:
+            return None
 
 
 class CartOutputSerializer(serializers.ModelSerializer):
