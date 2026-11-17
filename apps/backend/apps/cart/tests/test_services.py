@@ -757,7 +757,7 @@ def test_re_reserve_cart_item_success(user, variant):
 
 @pytest.mark.django_db
 def test_re_reserve_cart_item_out_of_stock_fails(user, other_user, variant):
-    """Si el stock fue tomado por otro cliente mientras expiraba, re-reservar falla con out_of_stock."""
+    """Si otro cliente tomó el stock mientras expiraba, re-reservar falla con out_of_stock."""
     variant.stock_quantity = 2
     variant.save()
 
@@ -778,6 +778,22 @@ def test_re_reserve_cart_item_out_of_stock_fails(user, other_user, variant):
 
 
 @pytest.mark.django_db
+def test_re_reserve_cart_item_active_does_not_extend_ttl(user, variant):
+    """Anti-acaparamiento (Argon): si la reserva aún está activa, re_reserve_cart_item
+
+    es idempotente y no reinicia arbitrariamente el cronómetro de 15 minutos.
+    """
+    item, res = add_to_cart(user=user, variant_id=variant.id, quantity=1)
+    original_expires = res.expires_at
+
+    updated_item, returned_res = re_reserve_cart_item(user=user, item_id=item.id)
+
+    assert updated_item.id == item.id
+    assert returned_res.id == res.id
+    assert returned_res.expires_at == original_expires
+
+
+@pytest.mark.django_db
 def test_cleanup_expired_reservations_management_command(user, variant):
     """El comando de management cleanup_expired_reservations ejecuta la limpieza."""
     from io import StringIO
@@ -791,4 +807,3 @@ def test_cleanup_expired_reservations_management_command(user, variant):
 
     assert "Se liberaron 1 reservas expiradas." in out.getvalue()
     assert not StockReservation.objects.filter(id=res.id).exists()
-
