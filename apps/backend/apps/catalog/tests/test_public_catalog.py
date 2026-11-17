@@ -177,4 +177,3 @@ def test_public_product_detail_reflects_active_reservation_as_out_of_stock(api_c
     assert res_expired.json()["in_stock"] is True
     assert res_expired.json()["variants"][0]["stock_quantity"] == 1
     assert res_expired.json()["variants"][0]["is_available"] is True
-

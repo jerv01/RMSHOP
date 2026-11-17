@@ -17,7 +17,6 @@ from apps.cart.services import (
 )
 from apps.catalog.models import Category, Product, ProductStatus, ProductVariant
 from apps.core.exceptions import ApiError
-from apps.inventory.models import StockMovement
 from apps.users.models import User
 
 
@@ -692,4 +691,3 @@ def test_convert_cart_to_sale_item_missing_reservation_raises_api_error(user, va
         convert_cart_to_sale(cart=cart)
 
     assert exc_info.value.get_codes() == "reservation_missing"
-

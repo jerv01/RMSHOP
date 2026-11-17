@@ -240,9 +240,7 @@ def test_cart_item_outputs_time_remaining_seconds_and_handles_expiration(auth_cl
     Al agregar: entre 895 y 900 segundos (tolerancia +-5s sobre 15 min).
     Al expirar la reserva: retorna 0 segundos y is_reservation_active=False.
     """
-    post_res = auth_client.post(
-        CART_ITEMS_URL, data={"variant_id": variant.id, "quantity": 1}
-    )
+    post_res = auth_client.post(CART_ITEMS_URL, data={"variant_id": variant.id, "quantity": 1})
     assert post_res.status_code == status.HTTP_200_OK
     item = post_res.json()["items"][0]
 
