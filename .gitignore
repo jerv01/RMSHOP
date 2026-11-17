@@ -36,3 +36,6 @@ apps/backend/staticfiles/*
 apps/backend/media/*
 !apps/backend/media/.gitkeep
 
+# Superpowers SDD workspace
+.superpowers/
+
