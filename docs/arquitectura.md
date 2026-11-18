@@ -183,7 +183,7 @@ Base `/api/v1/`. Los errores responden `{code, message, fields}` sin detalles t�
 | Catálogo | `GET /categories`, `GET /products`, `GET /products/{slug}` | Público |
 | Carrito | `GET/POST /cart/items`, `PATCH/DELETE /cart/items/{id}` | Cliente |
 | Checkout | `POST /checkout` (crea el pedido «Pendiente de Pago» desde el carrito: `municipality`, `address_line`, `recipient_name`, `phone`; con throttling); `GET /shipping/quote` (previsto, HU-26) | Cliente |
-| Pagos | `POST /orders/{n}/payments` (tarjeta débito con token del Card Payment Brick, o PSE con banco y datos del pagador; con throttling), `POST /orders/{n}/payments/sync` (consulta a MercadoPago y aplica el estado), `GET /payments/pse-banks` (caché de 1 hora); `POST /webhooks/payments/mercadopago` (previsto, HU-22) | Cliente y MercadoPago |
+| Pagos | `POST /orders/{n}/payments` (tarjeta débito con token del Card Payment Brick, o PSE con banco y datos del pagador; con throttling), `POST /orders/{n}/payments/sync` (consulta a MercadoPago y aplica el estado), `GET /payments/pse-banks` (caché de 1 hora); `POST /webhooks/payments/mercadopago` (firma `x-signature`; HU-22, HU-23) | Cliente y MercadoPago |
 | Pedidos | `GET /orders`, `GET /orders/{n}`; `POST /orders/{n}/cancel` (previsto) | Cliente |
 | Chatbot | `POST /chat/messages` | Cliente |
 | Administración | `/admin/products`, `/admin/variants`, `/admin/stock`, `/admin/orders`, `/admin/orders/{n}/status` | Administrador |
@@ -284,7 +284,9 @@ src/
 - **Stock**: al crear el pedido, las reservas del carrito se convierten en venta (`convert_cart_to_sale`) y el stock queda retenido durante los 30 minutos (`payment_expires_at`).
 - **Solo débito (resuelto)**: el backend rechaza todo salvo `debvisa` o `debmaster` con tipo `debit_card` (`400 only_debit_allowed`) antes de llamar a MercadoPago, y el Brick se configura para mostrar solo débito. Nequi no está disponible en la Orders API de MercadoPago en Colombia (métodos: `visa`, `master`, `debvisa`, `debmaster`, `pse`, `efecty`), por lo que HU-20 pasó a PSE.
 - **Pasarela caída** (tiempo agotado, 5xx o 429): `503 payment_gateway_unavailable`, el pago queda en `error` y el pedido sigue «Pendiente de Pago» para reintentar.
-- **Pendiente**: el webhook firmado de MercadoPago (`POST /webhooks/payments/mercadopago`, HU-22) y la cancelación automática a los 30 minutos con el endpoint de tareas (HU-24). Mientras tanto, el estado se obtiene con `sync`.
+- **Confirmación automática (HU-22, HU-23)**: MercadoPago notifica a `POST /webhooks/payments/mercadopago` (tópico «Order»). Se valida `x-signature` (HMAC-SHA256 con `MERCADOPAGO_WEBHOOK_SECRET`), se consulta la orden en MercadoPago (no se confía en el cuerpo) y se aplica el estado; una notificación repetida no cambia nada.
+- **Cancelación a los 30 minutos (HU-24)**: `run_scheduled_tasks` consulta primero a MercadoPago cada pedido vencido; si hay respuesta la aplica, si no lo cancela y devuelve el stock una sola vez. En local: `python manage.py run_scheduled_tasks`.
+- **Pago tardío (P-10)**: si llega una aprobación para un pedido ya cancelado, el pedido no se reactiva y el pago queda con `needs_review = true` para revisión del administrador.
 - Un rechazo cancela el pedido; reintentar crea un pedido nuevo (HU-23).
 - 3DS no está habilitado (validación pendiente).
 - Sandbox: la Orders API no acepta credenciales `TEST-`; se usan credenciales de producción de usuarios de prueba de MercadoPago.
@@ -357,6 +359,8 @@ Conexión a Supabase: `DATABASE_URL` apunta al Transaction Pooler (puerto 6543) 
 | `FRONTEND_BASE_URL` | Backend | URL pública del frontend; arma el enlace de la invitación de administrador (`/admin/registro`) |
 | `MERCADOPAGO_ACCESS_TOKEN` | Backend | Pagos; solo en el servidor |
 | `MERCADOPAGO_API_BASE_URL`, `MERCADOPAGO_TIMEOUT_SECONDS` | Backend | Por defecto `https://api.mercadopago.com` y 4 segundos |
+| `MERCADOPAGO_CALLBACK_BASE_URL` | Backend | URL pública https de regreso tras PSE (MercadoPago rechaza localhost) |
+| `MERCADOPAGO_WEBHOOK_SECRET` | Backend | Valida la firma de los webhooks de MercadoPago |
 | `RESEND_API_KEY`, `DEFAULT_FROM_EMAIL` | Backend | Correo transaccional |
 | `GEMINI_API_KEY`, `GEMINI_MODEL` | Backend | Solo en el servidor |
 | `SUPABASE_S3_*` | Backend | Credenciales de Storage |

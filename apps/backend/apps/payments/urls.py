@@ -1,6 +1,11 @@
 from django.urls import path
 
-from apps.payments.views import OrderPaymentSyncView, OrderPaymentView, PseBankListView
+from apps.payments.views import (
+    MercadoPagoWebhookView,
+    OrderPaymentSyncView,
+    OrderPaymentView,
+    PseBankListView,
+)
 
 urlpatterns = [
     path(
@@ -17,4 +22,10 @@ urlpatterns = [
     path("orders/<str:order_number>/payments/sync/", OrderPaymentSyncView.as_view()),
     path("payments/pse-banks", PseBankListView.as_view(), name="pse-banks"),
     path("payments/pse-banks/", PseBankListView.as_view()),
+    path(
+        "webhooks/payments/mercadopago",
+        MercadoPagoWebhookView.as_view(),
+        name="mercadopago-webhook",
+    ),
+    path("webhooks/payments/mercadopago/", MercadoPagoWebhookView.as_view()),
 ]

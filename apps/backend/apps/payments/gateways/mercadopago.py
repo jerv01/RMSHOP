@@ -4,6 +4,8 @@ Es el único módulo que habla HTTP con MercadoPago; el resto del backend usa su
 recibe diccionarios con la orden de MercadoPago tal como la documenta la API.
 """
 
+import hashlib
+import hmac
 import logging
 
 import httpx
@@ -141,3 +143,23 @@ def _failed_transaction_order(response: httpx.Response) -> dict:
     order.setdefault("status", "failed")
     order.setdefault("status_detail", "rejected")
     return order
+
+
+def verify_webhook_signature(*, signature_header: str, request_id: str, data_id: str) -> bool:
+    """Valida el header x-signature de una notificación de MercadoPago (HMAC-SHA256).
+
+    Formato: "ts=<epoch>,v1=<hex>". El manifiesto firmado es
+    "id:<data.id>;request-id:<x-request-id>;ts:<ts>;" con data.id en minúsculas.
+    """
+    secret = settings.MERCADOPAGO_WEBHOOK_SECRET
+    if not secret:
+        raise PaymentGatewayNotConfigured()
+    parts = dict(
+        part.strip().split("=", 1) for part in (signature_header or "").split(",") if "=" in part
+    )
+    ts, received = parts.get("ts"), parts.get("v1")
+    if not ts or not received or not data_id:
+        return False
+    manifest = f"id:{data_id.lower()};request-id:{request_id};ts:{ts};"
+    expected = hmac.new(secret.encode(), manifest.encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, received)

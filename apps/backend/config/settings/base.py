@@ -173,6 +173,10 @@ MERCADOPAGO_TIMEOUT_SECONDS = float(env("MERCADOPAGO_TIMEOUT_SECONDS", "4"))
 # A dónde vuelve el cliente tras pagar con PSE. MercadoPago solo acepta URLs públicas https;
 # en local usa un túnel (o cualquier https y abre /pedidos/<n> a mano).
 MERCADOPAGO_CALLBACK_BASE_URL = env("MERCADOPAGO_CALLBACK_BASE_URL", "") or FRONTEND_BASE_URL
+# Clave secreta de webhooks (panel de MercadoPago > Webhooks); valida x-signature (HU-22).
+MERCADOPAGO_WEBHOOK_SECRET = env("MERCADOPAGO_WEBHOOK_SECRET", "")
+# Secreto que pg_cron envía en X-Cron-Secret a /internal/run-scheduled-tasks (HU-24).
+CRON_SECRET = env("CRON_SECRET", "")
 
 # Correo
 EMAIL_HOST = env("EMAIL_HOST", "localhost")

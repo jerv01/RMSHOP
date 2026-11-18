@@ -1,16 +1,24 @@
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
+from apps.core.exceptions import ApiError
 from apps.orders.views import get_customer_order
+from apps.payments.gateways.mercadopago import verify_webhook_signature
 from apps.payments.serializers import (
     PaymentResultSerializer,
     PseBankSerializer,
     StartPaymentInputSerializer,
 )
-from apps.payments.services import list_pse_banks, start_payment, sync_payment
+from apps.payments.services import (
+    handle_mp_webhook,
+    list_pse_banks,
+    start_payment,
+    sync_payment,
+)
 from apps.users.permissions import IsCustomer
 
 
@@ -87,3 +95,26 @@ class PseBankListView(APIView):
     )
     def get(self, request):
         return Response(PseBankSerializer(list_pse_banks(), many=True).data)
+
+
+class MercadoPagoWebhookView(APIView):
+    """Notificaciones de MercadoPago (HU-22, HU-23). Público, protegido por x-signature."""
+
+    authentication_classes: list = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        request=None, responses={200: None}, summary="Webhook de MercadoPago", tags=["Pagos"]
+    )
+    def post(self, request):
+        data = request.data.get("data") if isinstance(request.data, dict) else None
+        data_id = str(request.query_params.get("data.id") or (data or {}).get("id") or "")
+        if not verify_webhook_signature(
+            signature_header=request.headers.get("x-signature", ""),
+            request_id=request.headers.get("x-request-id", ""),
+            data_id=data_id,
+        ):
+            raise ApiError("Firma de notificación inválida.", code="invalid_signature")
+        if request.data.get("type") == "order":
+            handle_mp_webhook(mp_order_id=data_id)
+        return Response({"received": True})

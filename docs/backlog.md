@@ -460,7 +460,7 @@ RM Shop es una plataforma web que centraliza el catálogo de la marca de ropa RM
 
 #### **Feature 4.2: Resultado del pago**
 
-**HU-22** \[SIN-IA\]
+**HU-22** \[SIN-IA\] \[BACKEND LISTO\]
 
 * Actor(es): Cliente registrado  
 * Descripción: Como Cliente registrado, quiero que mi pedido pase a "Pago aprobado" cuando la pasarela confirme el pago, para tener certeza de que mi compra fue exitosa.  
@@ -479,7 +479,7 @@ RM Shop es una plataforma web que centraliza el catálogo de la marca de ropa RM
 * Dependencias: HU-21  
 * Pre-chequeo DoR: \[1\] Calidad: Sí \| \[2\] Criterios: Sí (con \[SUPUESTO\]) \| \[3\] Dependencias: Sí \| \[4-6\] Se evalúan en Etapa 3
 
-**HU-23** \[SIN-IA\]
+**HU-23** \[SIN-IA\] \[BACKEND LISTO\]
 
 * Actor(es): Cliente registrado  
 * Descripción: Como Cliente registrado, quiero que mi pedido se cancele automáticamente si el pago es rechazado, para que no quede una orden inconsistente.  
@@ -487,7 +487,7 @@ RM Shop es una plataforma web que centraliza el catálogo de la marca de ropa RM
   * Tareas funcionales: detectar el rechazo; pasar el pedido a "Pago rechazado" y luego a "Cancelado"; liberar stock.  
   * Entrada: rechazo de la pasarela \| Proceso: se actualiza el estado y se libera stock \| Salida: pedido cancelado y stock disponible.  
   * Flujo de interfaz (texto): el cliente ve un mensaje de pago rechazado y el pedido como cancelado; puede intentar una nueva compra.  
-  * Reglas de negocio y datos: el rechazo cancela automáticamente. Si el pedido pasa por "Pago rechazado" y luego "Cancelado", o queda solo en uno, no está definido (P-10).  
+  * Reglas de negocio y datos: el rechazo cancela automáticamente. Si el pedido pasa por "Pago rechazado" y luego "Cancelado", o queda solo en uno, no está definido (P-10). Resuelto: pasa por "Pago rechazado" y luego "Cancelado", ambos en el historial.  
 * Restricciones (requerimientos no funcionales):  
   * La cancelación se aplica en 30 segundos o menos tras el rechazo. \[SUPUESTO\]  
   * El mensaje al cliente no expone datos sensibles de la pasarela.  
@@ -498,7 +498,7 @@ RM Shop es una plataforma web que centraliza el catálogo de la marca de ropa RM
 * Dependencias: HU-21  
 * Pre-chequeo DoR: \[1\] Calidad: Sí \| \[2\] Criterios: Sí (con \[SUPUESTO\]) \| \[3\] Dependencias: Sí \| \[4-6\] Se evalúan en Etapa 3
 
-**HU-24** \[SIN-IA\]
+**HU-24** \[SIN-IA\] \[BACKEND LISTO\]
 
 * Actor(es): Cliente registrado  
 * Descripción: Como Cliente registrado, quiero que el pedido se cancele automáticamente si la pasarela no responde en 30 minutos, para que se reincorpore el stock y no quede pendiente indefinidamente.  
@@ -506,7 +506,7 @@ RM Shop es una plataforma web que centraliza el catálogo de la marca de ropa RM
   * Tareas funcionales: contar 30 minutos desde el pago pendiente; cancelar; reincorporar stock.  
   * Entrada: pedido "Pendiente de Pago" sin respuesta \| Proceso: al vencer 30 minutos se cancela \| Salida: pedido "Cancelado" y stock disponible.  
   * Flujo de interfaz (texto): el cliente ve su pedido como "Cancelado" en su historial.  
-  * Reglas de negocio y datos: 30 minutos desde el inicio del pago. Qué ocurre con un pago real tardío está sin definir (P-10).  
+  * Reglas de negocio y datos: 30 minutos desde el inicio del pago. Qué ocurre con un pago real tardío está sin definir (P-10). Resuelto: el pedido no se reactiva y el pago queda marcado para revisión del administrador.  
 * Restricciones (requerimientos no funcionales):  
   * La cancelación ocurre a los 30 minutos con tolerancia de ±60 segundos. \[SUPUESTO\]  
   * El stock se reincorpora una sola vez.  
