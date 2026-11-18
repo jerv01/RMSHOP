@@ -100,6 +100,7 @@ Todos se ejecutan desde la raíz del repositorio.
 | Crear migraciones | `docker compose exec backend python manage.py makemigrations` |
 | Aplicar migraciones | `docker compose exec backend python manage.py migrate` |
 | Shell de Django | `docker compose exec backend python manage.py shell` |
+| Cargar productos de ejemplo | `docker compose exec backend python manage.py seed_products` |
 | Pruebas del frontend | `docker compose run --rm frontend pnpm test --run` |
 | Lint del frontend | `docker compose run --rm frontend pnpm lint` |
 | Tipos del frontend | `docker compose run --rm frontend pnpm typecheck` |
