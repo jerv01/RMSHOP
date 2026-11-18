@@ -39,3 +39,4 @@ apps/backend/media/*
 # Superpowers SDD workspace
 .superpowers/
 
+graphify-out/
