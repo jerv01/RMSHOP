@@ -50,6 +50,9 @@ INSTALLED_APPS = [
     "apps.inventory",
     "apps.notifications",
     "apps.cart",
+    "apps.shipping",
+    "apps.orders",
+    "apps.payments",
 ]
 
 AUTH_USER_MODEL = "users.User"
@@ -126,6 +129,11 @@ REST_FRAMEWORK = {
     "UNAUTHENTICATED_TOKEN": None,
     "EXCEPTION_HANDLER": "apps.core.exceptions.api_exception_handler",
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
+    # Límites por alcance para endpoints sensibles (arquitectura §9, ScopedRateThrottle).
+    "DEFAULT_THROTTLE_RATES": {
+        "checkout": "10/min",
+        "payments": "10/min",
+    },
 }
 
 SPECTACULAR_SETTINGS = {
@@ -155,6 +163,13 @@ CLERK_JWT_KEY = env("CLERK_JWT_KEY", "")
 
 # URL pública del frontend; arma el enlace de las invitaciones de administrador (HU-12).
 FRONTEND_BASE_URL = env("FRONTEND_BASE_URL", "http://localhost:5173")
+
+# MercadoPago (Orders API, HU-19 a HU-21). El access token es privado y solo vive en el backend;
+# si falta, solo fallan las rutas de pago (503).
+MERCADOPAGO_ACCESS_TOKEN = env("MERCADOPAGO_ACCESS_TOKEN", "")
+MERCADOPAGO_API_BASE_URL = env("MERCADOPAGO_API_BASE_URL", "https://api.mercadopago.com")
+# Menor que el límite de 5 s para iniciar el pago (NFR HU-19/HU-20).
+MERCADOPAGO_TIMEOUT_SECONDS = float(env("MERCADOPAGO_TIMEOUT_SECONDS", "4"))
 
 # Correo
 EMAIL_HOST = env("EMAIL_HOST", "localhost")
