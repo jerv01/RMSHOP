@@ -1,9 +1,17 @@
+import { useAuth } from "@clerk/react";
 import { useMemo, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
+import { useAddCartItem } from "@/features/cart/api";
+import { ApiError } from "@/shared/api/client";
 import { formatCOP } from "@/shared/lib/formatCOP";
+import { ErrorNotice, SuccessNotice } from "@/shared/ui/Feedback";
 import { hasValidDiscount, resolveCatalogImageUrl, useCatalogProductDetail } from "./api";
 
 export function ProductDetailPage() {
+  const { isLoaded, isSignedIn } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const addCartItem = useAddCartItem();
   const { slug = "" } = useParams<{ slug: string }>();
   const { data: product, isPending, isError } = useCatalogProductDetail(slug);
   const [selectedColor, setSelectedColor] = useState<string | null>(null);
@@ -72,6 +80,15 @@ export function ProductDetailPage() {
   const discounted = hasValidDiscount(product.price, product.previous_price);
   const designLabel = product.design?.trim() || `Diseño exclusivo RM · ${product.category.name}`;
   const variantInStock = (selectedVariant?.stock_quantity ?? 0) > 0;
+
+  function handleAddToCart() {
+    if (!isLoaded || !variantInStock || !selectedVariant || addCartItem.isPending) return;
+    if (!isSignedIn) {
+      void navigate("/ingresar", { state: { from: location } });
+      return;
+    }
+    addCartItem.mutate({ variant_id: selectedVariant.id, quantity: 1 });
+  }
 
   return (
     <article className="space-y-6">
@@ -253,14 +270,31 @@ export function ProductDetailPage() {
             </div>
           </div>
 
-          <div className="pt-4">
+          <div className="space-y-3 pt-4">
             <button
               type="button"
-              disabled={!variantInStock}
+              disabled={!isLoaded || !variantInStock || addCartItem.isPending}
+              onClick={handleAddToCart}
               className="inline-flex min-h-11 w-full items-center justify-center rounded-[2px] bg-primary px-6 py-3 text-sm font-semibold uppercase tracking-wider text-primary-foreground transition-colors hover:bg-foreground/90 disabled:cursor-not-allowed disabled:bg-surface disabled:text-muted"
             >
-              {variantInStock ? "Agregar al carrito" : "Agotado"}
+              {addCartItem.isPending
+                ? "Agregando…"
+                : variantInStock
+                  ? "Agregar al carrito"
+                  : "Agotado"}
             </button>
+            {isSignedIn && addCartItem.isSuccess && (
+              <SuccessNotice>Producto agregado al carrito</SuccessNotice>
+            )}
+            {isSignedIn &&
+              (addCartItem.error instanceof ApiError &&
+              addCartItem.error.code === "out_of_stock" ? (
+                <p role="alert" className="notice notice-error">
+                  Ya no hay disponibilidad para la variante seleccionada.
+                </p>
+              ) : (
+                <ErrorNotice error={addCartItem.error} />
+              ))}
           </div>
         </section>
       </div>

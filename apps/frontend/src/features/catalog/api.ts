@@ -53,6 +53,7 @@ export function useCatalogProducts() {
   return useQuery({
     queryKey: catalogProductsKey,
     queryFn: () => apiFetch<CatalogProduct[]>("/products"),
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -61,5 +62,6 @@ export function useCatalogProductDetail(slug: string) {
     queryKey: catalogProductDetailKey(slug),
     queryFn: () => apiFetch<CatalogProduct>(`/products/${encodeURIComponent(slug)}`),
     enabled: Boolean(slug),
+    refetchOnWindowFocus: true,
   });
 }
