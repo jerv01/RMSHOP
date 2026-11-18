@@ -47,6 +47,8 @@ class Payment(models.Model):
     redirect_url = models.URLField(max_length=1000, blank=True)
     # Última respuesta de MercadoPago, saneada (sin tokens).
     raw_response = models.JSONField(default=dict, blank=True)
+    # Pago aprobado cuando el pedido ya no estaba pendiente (p. ej. cancelado por tiempo).
+    needs_review = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

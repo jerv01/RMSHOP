@@ -12,7 +12,7 @@ from rest_framework.exceptions import NotFound
 
 from apps.core.exceptions import ApiError
 from apps.orders.models import Order, OrderStatus
-from apps.orders.services import approve_order_payment, reject_order_payment
+from apps.orders.services import approve_order_payment, cancel_order, reject_order_payment
 from apps.payments.exceptions import (
     OrderNotPayable,
     PaymentAlreadyInProgress,
@@ -130,7 +130,12 @@ def apply_mp_order(*, payment: Payment, mp_order: dict) -> Payment:
             approve_order_payment(order=order, note=note)
         except ApiError:
             # Aprobación de un pedido que ya no está pendiente (p. ej. cancelado por tiempo).
-            # No se reactiva; queda registrado para revisión del administrador (HU-22/HU-24).
+            # No se reactiva; queda para revisión del administrador (AC-HU-22-2, AC-HU-24-3).
+            # shortcut: se revisa con Payment.objects.filter(needs_review=True), sin pantalla;
+            # mostrarlo en el panel cuando exista la gestión de pedidos del administrador.
+            if order.status != OrderStatus.PAYMENT_APPROVED:
+                Payment.objects.filter(pk=payment.pk).update(needs_review=True)
+                payment.needs_review = True
             logger.warning(
                 "Pago aprobado para el pedido %s en estado %s; requiere revisión manual.",
                 order.order_number,
@@ -363,14 +368,56 @@ def sync_payment(*, user: User, order_number: str) -> Order:
     if order.status != OrderStatus.PENDING_PAYMENT:
         return order
 
-    payment = order.payments.exclude(mp_order_id__isnull=True).first()
-    if payment is None:
-        return order
-
-    mp_order = get_gateway().get_order(mp_order_id=payment.mp_order_id)
-    apply_mp_order(payment=payment, mp_order=mp_order)
+    sync_order_payment(order=order)
     order.refresh_from_db()
     return order
+
+
+def sync_order_payment(*, order: Order) -> Payment | None:
+    """Consulta en MercadoPago el último pago enviado del pedido y aplica su estado."""
+    payment = order.payments.exclude(mp_order_id__isnull=True).first()
+    if payment is None:
+        return None
+    mp_order = get_gateway().get_order(mp_order_id=payment.mp_order_id)
+    return apply_mp_order(payment=payment, mp_order=mp_order)
+
+
+def handle_mp_webhook(*, mp_order_id: str) -> Payment | None:
+    """Aplica una notificación de MercadoPago (HU-22, HU-23) sin confiar en su cuerpo.
+
+    El estado se lee de MercadoPago con el id notificado. Un id que no es de un pago nuestro
+    se ignora. Idempotente: una notificación repetida no cambia nada (AC-HU-22-3).
+    """
+    payment = Payment.objects.filter(mp_order_id=mp_order_id).first()
+    if payment is None:
+        return None
+    mp_order = get_gateway().get_order(mp_order_id=mp_order_id)
+    return apply_mp_order(payment=payment, mp_order=mp_order)
+
+
+def cancel_expired_orders() -> int:
+    """Cancela los pedidos «Pendiente de Pago» cuya ventana de 30 minutos venció (HU-24).
+
+    Antes de cancelar consulta MercadoPago: si el pago ya tiene respuesta, se aplica esa
+    respuesta y no se cancela por tiempo (AC-HU-24-2). El stock se devuelve una sola vez
+    porque cancel_order solo actúa sobre pedidos que siguen pendientes. Un fallo de
+    MercadoPago en un pedido no detiene a los demás; se reintenta en la siguiente corrida.
+    """
+    cancelled = 0
+    expired = Order.objects.filter(
+        status=OrderStatus.PENDING_PAYMENT, payment_expires_at__lte=timezone.now()
+    ).order_by("id")
+    for order in expired:
+        try:
+            sync_order_payment(order=order)
+        except ApiError:
+            logger.warning("No se pudo consultar el pago del pedido %s.", order.order_number)
+            continue
+        order.refresh_from_db()
+        if order.status == OrderStatus.PENDING_PAYMENT:
+            cancel_order(order=order, note="Cancelado: sin respuesta del pago en 30 minutos.")
+            cancelled += 1
+    return cancelled
 
 
 def list_pse_banks() -> list[dict]:
