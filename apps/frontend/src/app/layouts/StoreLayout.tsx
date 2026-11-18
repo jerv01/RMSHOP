@@ -1,5 +1,6 @@
 import { Link, NavLink, Outlet } from "react-router";
 import { SessionControls } from "@/features/auth/SessionControls";
+import { CartCounter } from "@/features/cart/CartCounter";
 import { BrandLogo } from "@/shared/ui/BrandLogo";
 
 export function StoreLayout() {
@@ -40,7 +41,10 @@ export function StoreLayout() {
               </NavLink>
             </nav>
           </div>
-          <SessionControls />
+          <div className="flex flex-wrap items-center gap-2">
+            <CartCounter />
+            <SessionControls />
+          </div>
         </div>
       </header>
 

@@ -2,6 +2,8 @@ import { createBrowserRouter, Navigate } from "react-router";
 import { AdminSignInPage } from "@/features/auth/AdminSignInPage";
 import { AdminSignUpPage } from "@/features/auth/AdminSignUpPage";
 import { RequireAdmin } from "@/features/auth/RequireAdmin";
+import { RequireAuth } from "@/features/auth/RequireAuth";
+import { CartPage } from "@/features/cart/CartPage";
 import { SignInPage } from "@/features/auth/SignInPage";
 import { SignUpPage } from "@/features/auth/SignUpPage";
 import { ProductDetailPage } from "@/features/catalog/ProductDetailPage";
@@ -18,6 +20,10 @@ export const router = createBrowserRouter([
       { path: "/", element: <HomePage /> },
       { path: "/categoria/:slug", element: <HomePage /> },
       { path: "/producto/:slug", element: <ProductDetailPage /> },
+      {
+        element: <RequireAuth />,
+        children: [{ path: "/carrito", element: <CartPage /> }],
+      },
       { path: "/ingresar/*", element: <SignInPage /> },
       { path: "/login/*", element: <Navigate to="/ingresar" replace /> },
       { path: "/registro/*", element: <SignUpPage /> },
