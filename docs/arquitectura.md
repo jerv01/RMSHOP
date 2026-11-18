@@ -6,7 +6,7 @@ RM Shop es una tienda en línea de alcance local: SPA en React, API en Django, b
 
 ## 1. Resumen y alcance
 
-RM Shop centraliza el catálogo de la marca RM y vende en Cali, Palmira, Jamundí y Yumbo con pago en tarjeta débito o Nequi, un chatbot de IA y un panel para administradores, sin límite de cantidad.
+RM Shop centraliza el catálogo de la marca RM y vende en Cali, Palmira, Jamundí y Yumbo con pago en tarjeta débito o PSE, un chatbot de IA y un panel para administradores, sin límite de cantidad.
 
 | Restricción | Origen | Resolución |
 | --- | --- | --- |
@@ -16,7 +16,7 @@ RM Shop centraliza el catálogo de la marca RM y vende en Cali, Palmira, Jamund�
 | Reserva de stock de 15 minutos | HU-17, HU-18 | Tabla de reservas; stock disponible = stock menos reservas vigentes, calculado al leer |
 | Cancelar el pedido a los 30 min (±60 s) sin respuesta de la pasarela | HU-24 | `pg_cron` de Supabase llama cada minuto a un endpoint interno de la API |
 | Correos en 2 minutos o menos | Épica 9 | Envío tras confirmar la transacción, con reintento en la llamada de cada minuto |
-| Pago con tarjeta débito y Nequi | HU-19, HU-20 | Wompi detrás de una interfaz propia |
+| Pago con tarjeta débito y PSE | HU-19, HU-20 | MercadoPago (Orders API) detrás de un adaptador propio |
 | Administradores con cuenta separada y sin límite de cantidad | HU-11, HU-12 | Rol `admin` en Clerk (`public_metadata.role`); alta por invitación y baja desde el panel, validadas en el backend |
 | Envío a 4 municipios con tarifa fija | Épica 5 | `shipping_zones`: Cali 5.000 COP; Palmira, Jamundí y Yumbo 10.000 COP |
 | Chatbot de texto con sesión, límite de uso y sin datos personales | HU-50 a HU-54 | Servicio en el backend con Gemini y herramientas acotadas |
@@ -36,7 +36,7 @@ RM Shop centraliza el catálogo de la marca RM y vende en Cali, Palmira, Jamund�
 | Entorno backend | Python | 3.14 (última 3.14.x) |
 | Base de datos | PostgreSQL en Supabase | Transaction Pooler, puerto 6543 |
 | Autenticación | Clerk | n/a |
-| Pagos | Wompi | n/a |
+| Pagos | MercadoPago (Orders API) | n/a |
 | Correo transaccional | Resend con `django-anymail` | n/a |
 | Chatbot | API de Gemini con el SDK `google-genai` | Modelo Flash, configurable |
 | Imágenes | Supabase Storage | n/a |
@@ -54,7 +54,7 @@ Fuera de esta versión: Celery, Redis, Sentry y generación de tipos desde OpenA
 | Render | Gratuito | 750 horas al mes; se suspende tras 15 minutos sin tráfico y tarda hasta 1 minuto en arrancar; sin disco persistente | La llamada de `pg_cron` cada minuto lo mantiene activo; aun así no garantiza el 99 % de HU-1 |
 | Supabase | Gratuito | 500 MB de base de datos, 1 GB de archivos, 5 GB de egreso; pausa tras 7 días de inactividad; sin copias automáticas | Alcanza para menos de 30 productos; copias de seguridad manuales con `pg_dump` |
 | Clerk | Hobby | 50.000 usuarios retenidos al mes | Cubre el volumen local |
-| Wompi | Sin costo fijo | Comisión por transacción | Costo variable por venta |
+| MercadoPago | Sin costo fijo | Comisión por transacción | Costo variable por venta |
 | Resend | Gratuito | 3.000 correos al mes, 100 al día, 1 dominio | Con 4 correos por pedido, unos 25 pedidos al día |
 | Gemini API | Capa gratuita | Límites por minuto y por día; el contenido enviado puede usarse para mejorar productos de Google | El límite de uso por cliente (HU-51) se ajusta a la cuota |
 | Vercel | Hobby | Solo uso personal y no comercial | No cubre la tienda de un cliente; ver 13.1 |
@@ -67,7 +67,7 @@ Dos despliegues propios, Vercel y Render, y cinco servicios administrados: Supab
 
 &#91;embedded content: arquitectura de red · 2 despliegues propios y 5 servicios administrados\]
 
-El navegador inicia sesión con Clerk, descarga la SPA desde Vercel y llama a la API de Render con el token de sesión. Solo la API se conecta a Wompi, Resend y Gemini; `pg_cron` de Supabase llama cada minuto al endpoint interno de tareas.
+El navegador inicia sesión con Clerk, descarga la SPA desde Vercel y llama a la API de Render con el token de sesión. Solo la API se conecta a MercadoPago, Resend y Gemini; `pg_cron` de Supabase llama cada minuto al endpoint interno de tareas.
 
 ### 3.1 Estructura del monorepo
 
@@ -122,10 +122,10 @@ Se conserva el esquema propuesto, sin `reviews` (ninguna historia la usa), con a
 | `carts` | Sin `session_id`; un carrito por `user_id` | HU-13 |
 | `stock_reservations` (nueva) | `cart_item_id`, `variant_id`, `quantity`, `expires_at` | HU-17, HU-18 |
 | `stock_movements` (nueva) | `variant_id`, `admin_id`, `delta`, `reason`, `created_at` | HU-37 |
-| `orders` | `shipping_cost`, `created_at`, `updated_at`; `status` con los 7 estados; `order_number` único; `shipping_address` como copia fija | HU-26, HU-30 |
-| `order_items` | `product_name`, `color` y `size` como copia fija | HU-40 |
-| `order_status_history` (nueva) | `order_id`, `from_status`, `to_status`, `changed_by` (administrador o sistema), `created_at` | HU-31, HU-42 |
-| `payments` | `amount`, `provider`, `created_at`; `transaction_id` único; `payment_method` solo `debit_card` o `nequi` | HU-19 a HU-24 |
+| `orders` | `subtotal`, `shipping_cost`, `total`, `payment_expires_at` (límite de 30 minutos para recibir el pago), `created_at`, `updated_at`; `status` con los 7 estados; `order_number` único con formato `RM-000123`; dirección de envío como copia fija (`municipality`, `address_line`, `recipient_name`, `phone`) | HU-26, HU-30 |
+| `order_items` | `product_name`, `color` y `size` como copia fija; `unit_price` y `subtotal` congelados | HU-40 |
+| `order_status_history` (nueva) | `order_id`, `from_status`, `to_status`, `changed_by` (administrador o sistema), `note`, `created_at` | HU-31, HU-42 |
+| `payments` | `order_id`, `provider` (`mercadopago`), `method` (`debit_card` o `pse`), `amount`, `status` (`initiated`, `processing`, `action_required`, `approved`, `rejected`, `error`), `status_detail`, `mp_order_id` y `mp_payment_id` únicos, `idempotency_key` (UUID único, se envía como `X-Idempotency-Key`), `redirect_url` (banco PSE), `raw_response` saneada (nunca guarda tokens de tarjeta), `created_at`, `updated_at`; restricción única parcial: un solo pago activo (`initiated`, `processing`, `action_required` o `approved`) por pedido | HU-19 a HU-24 |
 | `admin_audit_log` (nueva) | `action` (`admin_invited`, `admin_removed`), `actor_id` (FK a `users`, `SET_NULL`), `actor_email`, `target_email`, `target_clerk_user_id` (nulo en invitaciones), `created_at` | HU-12 |
 | `notification_log` (nueva) | `order_id`, `user_id`, `event`, `status`, `sent_at`; único (`order_id`, `event`) | HU-46 a HU-49 |
 | `chat_usage` (nueva) | `user_id`, `period`, `message_count`; sin contenido de mensajes | HU-51 |
@@ -137,7 +137,7 @@ Un diseño es una fila de `products`; cada combinación de color y talla es una 
 - **Moneda**: precios en `DecimalField(max_digits=12, decimal_places=0)`.
 - **Estados del pedido**: `pending_payment`, `payment_approved`, `payment_rejected`, `in_preparation`, `shipped`, `delivered`, `cancelled`.
 - **Índices**: `orders (status, created_at)`, `stock_reservations (expires_at)`, `orders (user_id, created_at DESC)`, `slug` único en `products` y `categories`.
-- **Integridad**: `payments.transaction_id` único; `order_items` con precio y SKU congelados; una prenda publicada tiene entre 1 y 3 imágenes, validado en el servicio de productos.
+- **Integridad**: `payments.mp_order_id`, `payments.mp_payment_id` e `idempotency_key` únicos; `order_items` con nombre, color, talla y precio congelados; una prenda publicada tiene entre 1 y 3 imágenes, validado en el servicio de productos.
 - **Supabase**: Row Level Security activado, sin políticas, en todas las tablas de `public`; Django accede con su propio rol.
 - **Usuarios**: contraseñas, sesiones y roles viven en Clerk. `users` se conserva mínima porque `carts`, `orders`, `user_addresses`, `chat_usage` y `stock_movements` necesitan una clave foránea local, y el panel muestra nombre y correo sin consultar a Clerk por cada pedido.
 - **Administradores**: el rol `admin` vive en Clerk (`public_metadata.role`) y solo lo asigna el servidor: la primera cuenta se marca a mano (`docs/clerk-setup.md`, sección 7) y las demás nacen de una invitación creada por un administrador (HU-12). No hay límite de cantidad. Al borrarse un usuario en Clerk, el webhook `user.deleted` conserva la fila local con los datos personales vaciados, para no perder `stock_movements` ni `order_status_history`.
@@ -155,7 +155,7 @@ Monolito modular en Django: una app por dominio, vistas delgadas y reglas de neg
 | `inventory` | 3.2, 7.2 | Stock, movimientos y reservas de 15 minutos |
 | `cart` | 3 | Carrito e ítems |
 | `orders` | 4, 6, 8 | Pedidos, ítems con precio congelado, historial de estados y cancelaciones |
-| `payments` | 4 | Adaptador de Wompi, pagos y webhooks |
+| `payments` | 4 | Adaptador de MercadoPago (Orders API), pagos y webhooks |
 | `shipping` | 5 | Zonas de cobertura, tarifa y envíos |
 | `notifications` | 9 | Plantillas, envío y registro de correos |
 | `chatbot` | 10 | Orquestación con Gemini, herramientas y límite de uso |
@@ -182,9 +182,9 @@ Base `/api/v1/`. Los errores responden `{code, message, fields}` sin detalles t�
 | Sesión y dirección | `GET /me`, `GET/PUT /me/address` | Autenticado |
 | Catálogo | `GET /categories`, `GET /products`, `GET /products/{slug}` | Público |
 | Carrito | `GET/POST /cart/items`, `PATCH/DELETE /cart/items/{id}` | Cliente |
-| Checkout | `GET /shipping/quote`, `POST /checkout` | Cliente |
-| Pagos | `POST /payments`, `POST /webhooks/payments/wompi` | Cliente y Wompi |
-| Pedidos | `GET /orders`, `GET /orders/{n}`, `POST /orders/{n}/cancel` | Cliente |
+| Checkout | `POST /checkout` (crea el pedido «Pendiente de Pago» desde el carrito: `municipality`, `address_line`, `recipient_name`, `phone`; con throttling); `GET /shipping/quote` (previsto, HU-26) | Cliente |
+| Pagos | `POST /orders/{n}/payments` (tarjeta débito con token del Card Payment Brick, o PSE con banco y datos del pagador; con throttling), `POST /orders/{n}/payments/sync` (consulta a MercadoPago y aplica el estado), `GET /payments/pse-banks` (caché de 1 hora); `POST /webhooks/payments/mercadopago` (previsto, HU-22) | Cliente y MercadoPago |
+| Pedidos | `GET /orders`, `GET /orders/{n}`; `POST /orders/{n}/cancel` (previsto) | Cliente |
 | Chatbot | `POST /chat/messages` | Cliente |
 | Administración | `/admin/products`, `/admin/variants`, `/admin/stock`, `/admin/orders`, `/admin/orders/{n}/status` | Administrador |
 | Gestión de administradores (HU-12) | `GET /admin/administrators`, `POST /admin/administrators` (`{email}` → `201 {status: "invited", email}`), `DELETE /admin/administrators/{clerk_user_id}` (`204`) | Administrador |
@@ -209,8 +209,8 @@ Base `/api/v1/`. Los errores responden `{code, message, fields}` sin detalles t�
 
 1. Stock disponible = `stock_quantity` menos reservas con `expires_at > now()`, calculado al leer.
 2. Reservar y descontar stock usa `select_for_update()` sobre la variante dentro de una transacción.
-3. `pg_cron` y `pg_net` de Supabase llaman cada minuto a `POST /api/v1/internal/run-scheduled-tasks` con el encabezado `X-Cron-Secret`. El endpoint ejecuta `run_scheduled_tasks`: borra reservas vencidas, cancela pedidos en «Pendiente de Pago» con más de 30 minutos, consulta a Wompi el estado de pedidos pendientes y reintenta correos fallidos. La frecuencia de un minuto cumple la tolerancia de ±60 segundos de HU-24 y evita que el servicio gratuito de Render se suspenda.
-4. Los webhooks de pago son idempotentes: `transaction_id` único y transición solo si el pedido sigue pendiente.
+3. `pg_cron` y `pg_net` de Supabase llaman cada minuto a `POST /api/v1/internal/run-scheduled-tasks` con el encabezado `X-Cron-Secret`. El endpoint ejecuta `run_scheduled_tasks`: borra reservas vencidas, cancela pedidos en «Pendiente de Pago» con más de 30 minutos, consulta a MercadoPago el estado de pedidos pendientes y reintenta correos fallidos. La frecuencia de un minuto cumple la tolerancia de ±60 segundos de HU-24 y evita que el servicio gratuito de Render se suspenda.
+4. Los resultados de pago son idempotentes: `mp_order_id` y `mp_payment_id` únicos, transición solo si el pedido sigue pendiente y devolución de stock una sola vez.
 5. Todo cambio de estado pasa por un único servicio que escribe `order_status_history` y registra a lo sumo un correo (HU-49).
 
 ## 6. Arquitectura del frontend
@@ -255,14 +255,14 @@ src/
 - **Cliente HTTP**: `fetch` con un wrapper que agrega el token y normaliza errores.
 - **Rendimiento**: listado en una sola llamada; imágenes WebP con `width`, `height` y `loading="lazy"`; panel de administración con carga diferida.
 - **Texto alternativo**: el componente de imagen exige `alt`; por defecto usa el nombre del producto.
-- **Vercel**: `vercel.json` reescribe todas las rutas a `index.html`; variables `VITE_API_URL` y `VITE_CLERK_PUBLISHABLE_KEY`.
+- **Vercel**: `vercel.json` reescribe todas las rutas a `index.html`; variables `VITE_API_URL`, `VITE_CLERK_PUBLISHABLE_KEY` y `VITE_MERCADOPAGO_PUBLIC_KEY`.
 
 ## 7. Integraciones externas
 
 | Integración | Servicio | Historias |
 | --- | --- | --- |
 | Autenticación | Clerk | HU-7 a HU-12, HU-44, HU-45 |
-| Pagos | Wompi | HU-19 a HU-24 |
+| Pagos | MercadoPago (Orders API) | HU-19 a HU-24 |
 | Correo transaccional | Resend con `django-anymail` | HU-43, HU-46 a HU-49 |
 | Chatbot | API de Gemini con llamadas a funciones | HU-50 a HU-54 |
 | Imágenes | Supabase Storage | HU-35, HU-61 |
@@ -276,11 +276,18 @@ src/
 
 ### 7.2 Pagos
 
-- Interfaz propia `PaymentGateway` con cuatro operaciones: crear transacción, consultar estado, verificar firma del webhook y traducir el estado de Wompi al del pedido.
-- El pago se hace en el widget de Wompi; RM Shop no recibe datos de tarjeta.
-- El resultado llega por webhook con verificación de firma e idempotencia; si no llega, la tarea programada consulta el estado de los pedidos pendientes.
+- Integración directa con la Orders API de MercadoPago (Colombia) desde el adaptador `apps/payments/gateways/mercadopago.py`, con `httpx` y tiempo máximo de 4 s (RNF de 5 s). No hay enlace de pago externo. Operaciones: crear orden (`POST /v1/orders`), consultar orden (`GET /v1/orders/{id}`) y listar bancos PSE (`GET /v1/payment_methods`).
+- **Tarjeta débito**: el formulario va incrustado en el sitio con el Card Payment Brick, que tokeniza la tarjeta en el navegador; el backend solo recibe el token. Los datos de tarjeta nunca llegan al backend y el access token vive solo en el backend.
+- **PSE**: el cliente elige su banco (`GET /payments/pse-banks`) y el backend devuelve `redirect_url`; el cliente es redirigido a su banco, algo propio de PSE. Al volver a `FRONTEND_BASE_URL/pedidos/{n}` (`callback_url`), el frontend llama a `POST /orders/{n}/payments/sync`, que consulta a MercadoPago y aplica el estado. La expiración de PSE es el tiempo restante de los 30 minutos del pedido.
+- **Idempotencia**: cada pago guarda un `idempotency_key` que se envía como `X-Idempotency-Key`; el índice único parcial impide dos pagos activos sobre el mismo pedido (HU-21).
+- **Estados**: `processed` → «Pago aprobado»; `failed`, `canceled`, `expired` (y HTTP 402) → «Pago rechazado» y luego «Cancelado», ambos en el historial, con devolución del stock una sola vez (`adjust_variant_stock`); `action_required` y `processing` → el pedido sigue «Pendiente de Pago».
+- **Stock**: al crear el pedido, las reservas del carrito se convierten en venta (`convert_cart_to_sale`) y el stock queda retenido durante los 30 minutos (`payment_expires_at`).
+- **Solo débito (resuelto)**: el backend rechaza todo salvo `debvisa` o `debmaster` con tipo `debit_card` (`400 only_debit_allowed`) antes de llamar a MercadoPago, y el Brick se configura para mostrar solo débito. Nequi no está disponible en la Orders API de MercadoPago en Colombia (métodos: `visa`, `master`, `debvisa`, `debmaster`, `pse`, `efecty`), por lo que HU-20 pasó a PSE.
+- **Pasarela caída** (tiempo agotado, 5xx o 429): `503 payment_gateway_unavailable`, el pago queda en `error` y el pedido sigue «Pendiente de Pago» para reintentar.
+- **Pendiente**: el webhook firmado de MercadoPago (`POST /webhooks/payments/mercadopago`, HU-22) y la cancelación automática a los 30 minutos con el endpoint de tareas (HU-24). Mientras tanto, el estado se obtiene con `sync`.
 - Un rechazo cancela el pedido; reintentar crea un pedido nuevo (HU-23).
-- Por verificar con Wompi: restringir el pago a tarjeta débito (HU-19). Su [documentación](https://docs.wompi.co/en/docs/colombia/metodos-de-pago/) lista Nequi como método propio, pero no muestra una opción para aceptar solo débito.
+- 3DS no está habilitado (validación pendiente).
+- Sandbox: la Orders API no acepta credenciales `TEST-`; se usan credenciales de producción de usuarios de prueba de MercadoPago.
 
 ### 7.3 Correo
 
@@ -317,7 +324,7 @@ Reglas:
 ### 8.1 Entorno local con Docker Compose
 
 - **Servicios**: `db` (PostgreSQL con la misma versión mayor que Supabase), `backend` (servidor de desarrollo de Django), `frontend` (Vite en el puerto 5173) y `mailpit` (captura de correos de prueba).
-- **Claves de desarrollo**: instancia de desarrollo de Clerk y claves de pruebas de Wompi y Gemini.
+- **Claves de desarrollo**: instancia de desarrollo de Clerk y credenciales de usuarios de prueba de MercadoPago y claves de pruebas de Gemini.
 - **Tareas programadas**: se ejecutan a mano con `docker compose exec backend python manage.py run_scheduled_tasks`.
 - **Comandos**: `docker compose up --build`, `docker compose exec backend python manage.py migrate` y `docker compose run --rm backend pytest`.
 
@@ -348,12 +355,13 @@ Conexión a Supabase: `DATABASE_URL` apunta al Transaction Pooler (puerto 6543) 
 | `CORS_ALLOWED_ORIGINS`, `CSRF_TRUSTED_ORIGINS` | Backend | Dominio del frontend |
 | `CLERK_SECRET_KEY`, `CLERK_WEBHOOK_SECRET` | Backend | Verificación de tokens y de webhooks; gestión de administradores |
 | `FRONTEND_BASE_URL` | Backend | URL pública del frontend; arma el enlace de la invitación de administrador (`/admin/registro`) |
-| `WOMPI_PUBLIC_KEY`, `WOMPI_PRIVATE_KEY`, `WOMPI_EVENTS_SECRET`, `WOMPI_INTEGRITY_SECRET` | Backend | Pagos |
+| `MERCADOPAGO_ACCESS_TOKEN` | Backend | Pagos; solo en el servidor |
+| `MERCADOPAGO_API_BASE_URL`, `MERCADOPAGO_TIMEOUT_SECONDS` | Backend | Por defecto `https://api.mercadopago.com` y 4 segundos |
 | `RESEND_API_KEY`, `DEFAULT_FROM_EMAIL` | Backend | Correo transaccional |
 | `GEMINI_API_KEY`, `GEMINI_MODEL` | Backend | Solo en el servidor |
 | `SUPABASE_S3_*` | Backend | Credenciales de Storage |
 | `CRON_SECRET` | Backend y `pg_cron` | Secreto del endpoint de tareas |
-| `VITE_API_URL`, `VITE_CLERK_PUBLISHABLE_KEY` | Frontend | Públicas; sin secretos |
+| `VITE_API_URL`, `VITE_CLERK_PUBLISHABLE_KEY`, `VITE_MERCADOPAGO_PUBLIC_KEY` | Frontend | Públicas; sin secretos |
 
 Los secretos viven en Render, Vercel y GitHub Actions; el repositorio solo incluye `.env.example`.
 
@@ -431,7 +439,7 @@ Se declaran en `pyproject.toml` y se bloquean en `uv.lock`; las imágenes instal
 | `django-anymail[resend]` | Última | Envío de correo con Resend |
 | `django-storages[s3]`, `boto3` | Última | Supabase Storage |
 | `Pillow` | Última | Validación y conversión de imágenes |
-| `httpx` | 0.28 o superior | Llamadas a Wompi |
+| `httpx` | 0.28 o superior | Llamadas a MercadoPago (dependencia directa) |
 | `google-genai` | Última | SDK de Gemini para el chatbot |
 
 ### 11.2 Desarrollo y pruebas
@@ -463,10 +471,10 @@ uv add --dev pytest pytest-django pytest-cov factory-boy freezegun respx ruff pi
 - HTTPS en Vercel y Render; Django con `SECURE_SSL_REDIRECT`, HSTS, cookies seguras y `SECURE_PROXY_SSL_HEADER`; conexión a Supabase con `sslmode=require`.
 - Contraseñas, sesiones, verificación y recuperación las gestiona Clerk.
 - El backend valida firma y expiración del token de Clerk en cada petición y filtra pedidos, carrito y direcciones por el usuario autenticado.
-- Los webhooks de Clerk y de Wompi se aceptan solo con firma válida; el endpoint de tareas, solo con `X-Cron-Secret`.
+- Los webhooks de Clerk y de MercadoPago se aceptan solo con firma válida; el endpoint de tareas, solo con `X-Cron-Secret`.
 - Throttling de DRF en el chatbot y el checkout.
 - CORS con lista explícita de orígenes y Content-Security-Policy en `vercel.json`.
-- Secretos solo en variables de entorno; las claves de Gemini y las claves privadas de Wompi nunca llegan al frontend.
+- Secretos solo en variables de entorno; la clave de Gemini y el access token de MercadoPago nunca llegan al frontend; los datos de tarjeta se tokenizan en el navegador y no pasan por el backend.
 
 ### 12.2 Versiones mínimas de seguridad
 
@@ -506,7 +514,6 @@ Estado al 1 de noviembre de 2026.
 
 | Decisión | Ref. backlog | Impacto |
 | --- | --- | --- |
-| Restringir el pago a tarjeta débito en Wompi | HU-19 | Configuración del checkout o validación al recibir el webhook |
 | Campos finales de la dirección | P-6 | `user_addresses` y `shipping_address` del pedido |
 | El cronómetro de 15 minutos se reinicia al modificar el carrito | P-5 | `expires_at` de las reservas |
 | Uno o varios correos por cambio de estado | P-16 | Claves únicas de `notification_log` |
@@ -523,6 +530,11 @@ Estado al 1 de noviembre de 2026.
 - **Dependencia de Clerk**: el inicio de sesión depende de un tercero; el catálogo es público y no depende de Clerk.
 - **Pooler de Supabase**: se prueba la configuración de la sección 8.3 contra el pooler en un entorno de staging.
 - **Python 3.14**: se confirman las ruedas de `psycopg` y `Pillow` al construir la primera imagen.
-- **Pasarela única**: la interfaz `PaymentGateway` permite sumar otra; el pedido nunca queda en estado inconsistente (HU-21).
+- **Pasarela única**: el adaptador aislado en `payments/gateways/` permite sumar otra; el pedido nunca queda en estado inconsistente (HU-21).
 - **Tareas sin cola**: si el volumen crece, `run_scheduled_tasks` se migra a Celery y Redis sin cambiar los servicios, porque la lógica vive en `services.py`.
 - **Reseñas**: no se crean; ninguna historia las usa.
+
+### 13.3 Decisiones resueltas
+
+- 2026-11-17: P-9 resuelto: MercadoPago (Orders API); Nequi reemplazado por PSE porque la Orders API no lo soporta en Colombia (HU-20).
+- 2026-11-17: restricción a tarjeta débito (HU-19) resuelta con validación en el backend (`only_debit_allowed`) y configuración del Brick.

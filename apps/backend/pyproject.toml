@@ -16,6 +16,7 @@ dependencies = [
     "django-anymail[resend]",
     "Pillow",
     "drf-spectacular>=0.30.0",
+    "httpx>=0.28.1",
 ]
 
 [dependency-groups]

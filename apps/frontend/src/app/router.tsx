@@ -7,6 +7,7 @@ import { CartPage } from "@/features/cart/CartPage";
 import { SignInPage } from "@/features/auth/SignInPage";
 import { SignUpPage } from "@/features/auth/SignUpPage";
 import { ProductDetailPage } from "@/features/catalog/ProductDetailPage";
+import { OrderResultPage } from "@/features/orders/OrderResultPage";
 import { DataPolicyPage } from "@/features/legal/DataPolicyPage";
 import { AdminLayout } from "./layouts/AdminLayout";
 import { StoreLayout } from "./layouts/StoreLayout";
@@ -22,7 +23,10 @@ export const router = createBrowserRouter([
       { path: "/producto/:slug", element: <ProductDetailPage /> },
       {
         element: <RequireAuth />,
-        children: [{ path: "/carrito", element: <CartPage /> }],
+        children: [
+          { path: "/carrito", element: <CartPage /> },
+          { path: "/pedidos/:numero", element: <OrderResultPage /> },
+        ],
       },
       { path: "/ingresar/*", element: <SignInPage /> },
       { path: "/login/*", element: <Navigate to="/ingresar" replace /> },

@@ -4,7 +4,7 @@
 
 **Visión del Producto**
 
-RM Shop es una plataforma web que centraliza el catálogo de la marca de ropa RM y permite a sus clientes del Valle del Cauca comprar y pagar en línea (tarjeta débito o Nequi), con apoyo de un chatbot de IA. Brinda a la propietaria y a los administradores un panel para gestionar productos, inventario, descuentos, pedidos y analítica. Con ello amplía el alcance de la marca de ropa RM y reduce la gestión manual de pedidos.
+RM Shop es una plataforma web que centraliza el catálogo de la marca de ropa RM y permite a sus clientes del Valle del Cauca comprar y pagar en línea (tarjeta débito o PSE), con apoyo de un chatbot de IA. Brinda a la propietaria y a los administradores un panel para gestionar productos, inventario, descuentos, pedidos y analítica. Con ello amplía el alcance de la marca de ropa RM y reduce la gestión manual de pedidos.
 
 **Arquetipos de Usuario**
 
@@ -400,15 +400,15 @@ RM Shop es una plataforma web que centraliza el catálogo de la marca de ropa RM
 
 #### **Feature 4.1: Pago en línea**
 
-**HU-19** \[SIN-IA\]
+**HU-19** \[SIN-IA\] \[BACKEND LISTO\]
 
 * Actor(es): Cliente registrado  
 * Descripción: Como Cliente registrado, quiero pagar mi pedido con tarjeta débito, para completar mi compra en línea.  
 * Detalles de la HU:  
   * Tareas funcionales: iniciar el pago con tarjeta débito; enviar a la pasarela; recibir su respuesta.  
   * Entrada: datos de pago ingresados en la pasarela \| Proceso: la pasarela procesa el pago \| Salida: resultado del pago.  
-  * Flujo de interfaz (texto): en el resumen el cliente elige "Tarjeta débito", es llevado al formulario de pago, completa y vuelve al sitio con el resultado.  
-  * Reglas de negocio y datos: solo tarjeta débito (sin crédito). Pasarela por definir (P-9). El pedido pasa a "Pendiente de Pago".  
+  * Flujo de interfaz (texto): en el resumen el cliente elige "Tarjeta débito", completa el formulario de pago incrustado en el sitio (Card Payment Brick de MercadoPago, sin redirección) y ve el resultado.  
+  * Reglas de negocio y datos: solo tarjeta débito (sin crédito). Pasarela: MercadoPago, Orders API (P-9 resuelta). El pedido pasa a "Pendiente de Pago".  
 * Restricciones (requerimientos no funcionales):  
   * Los datos de la tarjeta no se almacenan en el sitio.  
   * La comunicación del pago es cifrada.  
@@ -417,29 +417,29 @@ RM Shop es una plataforma web que centraliza el catálogo de la marca de ropa RM
   * AC-HU-19-1 (Camino feliz): Dado un cliente con carrito válido, cuando paga con tarjeta débito y es aprobada, entonces el pedido queda "Pago aprobado".  
   * AC-HU-19-2 (Alternativo/Error): Dada una tarjeta de crédito o no aceptada, cuando el cliente la usa, entonces se rechaza y se informa que solo se acepta débito.  
   * AC-HU-19-3 (Caso límite): Dado un cliente que cierra la ventana de pago, cuando abandona, entonces el pedido permanece "Pendiente de Pago" según HU-21/HU-24.  
-* Dependencias: HU-13, HU-25, HU-26 y una HU de creación del pedido/checkout (no existe)  
-* Pre-chequeo DoR: \[1\] Calidad: Sí \| \[2\] Criterios: Sí \| \[3\] Dependencias: No (falta la HU de checkout/creación de pedido) \| \[4-6\] Se evalúan en Etapa 3
+* Dependencias: HU-13, HU-25, HU-26 y una HU de creación del pedido/checkout (no existe; se implementó un checkout provisional, `POST /api/v1/checkout`, junto con HU-19 a HU-21)  
+* Pre-chequeo DoR: \[1\] Calidad: Sí \| \[2\] Criterios: Sí \| \[3\] Dependencias: Parcial (checkout provisional implementado; falta su HU formal) \| \[4-6\] Se evalúan en Etapa 3
 
-**HU-20** \[SIN-IA\]
+**HU-20** \[SIN-IA\] \[BACKEND LISTO\]
 
 * Actor(es): Cliente registrado  
-* Descripción: Como Cliente registrado, quiero pagar mi pedido con Nequi, para completar mi compra con mi medio de pago preferido.  
+* Descripción: Como Cliente registrado, quiero pagar mi pedido con PSE, para completar mi compra con mi medio de pago preferido.  
 * Detalles de la HU:  
-  * Tareas funcionales: iniciar el pago con Nequi; recibir el resultado.  
-  * Entrada: datos de pago en Nequi \| Proceso: la pasarela procesa el pago \| Salida: resultado del pago.  
-  * Flujo de interfaz (texto): el cliente elige "Nequi", confirma el pago y regresa al sitio con el resultado.  
-  * Reglas de negocio y datos: el pedido pasa a "Pendiente de Pago" hasta recibir respuesta. El detalle del flujo de Nequi depende de la pasarela (P-9).  
+  * Tareas funcionales: iniciar el pago con PSE; recibir el resultado.  
+  * Entrada: banco y datos del pagador en PSE \| Proceso: la pasarela procesa el pago \| Salida: resultado del pago.  
+  * Flujo de interfaz (texto): el cliente elige "PSE", selecciona su banco, es redirigido al banco, confirma y regresa al sitio con el resultado.  
+  * Reglas de negocio y datos: el pedido pasa a "Pendiente de Pago" hasta recibir respuesta. Pasarela: MercadoPago (P-9 resuelta). Se descartó Nequi porque la Orders API de MercadoPago no lo soporta en Colombia; PSE reemplaza a Nequi. PSE exige redirigir al banco del cliente.  
 * Restricciones (requerimientos no funcionales):  
   * Los datos de pago no se almacenan en el sitio.  
   * El inicio del pago responde en 5 segundos o menos. \[SUPUESTO\]  
 * Criterios de aceptación:  
-  * AC-HU-20-1 (Camino feliz): Dado un carrito válido, cuando el cliente paga con Nequi y es aprobado, entonces el pedido queda "Pago aprobado".  
-  * AC-HU-20-2 (Alternativo/Error): Dado un pago Nequi rechazado, cuando la pasarela responde, entonces el pedido queda "Pago rechazado" y se cancela.  
-  * AC-HU-20-3 (Caso límite): Dado un cliente que no confirma en Nequi, cuando transcurren 30 minutos, entonces se aplica HU-24.  
-* Dependencias: HU-13, HU-25, HU-26 y una HU de checkout (no existe)  
-* Pre-chequeo DoR: \[1\] Calidad: Sí \| \[2\] Criterios: Sí \| \[3\] Dependencias: No (falta la HU de checkout) \| \[4-6\] Se evalúan en Etapa 3
+  * AC-HU-20-1 (Camino feliz): Dado un carrito válido, cuando el cliente paga con PSE y es aprobado, entonces el pedido queda "Pago aprobado".  
+  * AC-HU-20-2 (Alternativo/Error): Dado un pago PSE rechazado, cuando la pasarela responde, entonces el pedido queda "Pago rechazado" y se cancela.  
+  * AC-HU-20-3 (Caso límite): Dado un cliente que no completa el pago en su banco, cuando transcurren 30 minutos, entonces se aplica HU-24.  
+* Dependencias: HU-13, HU-25, HU-26 y una HU de checkout (no existe; se implementó un checkout provisional, `POST /api/v1/checkout`, junto con HU-19 a HU-21)  
+* Pre-chequeo DoR: \[1\] Calidad: Sí \| \[2\] Criterios: Sí \| \[3\] Dependencias: Parcial (checkout provisional implementado; falta su HU formal) \| \[4-6\] Se evalúan en Etapa 3
 
-**HU-21** \[SIN-IA\]
+**HU-21** \[SIN-IA\] \[BACKEND LISTO\]
 
 * Actor(es): Cliente registrado  
 * Descripción: Como Cliente registrado, quiero ver mi pedido en estado "Pendiente de Pago" mientras se espera la respuesta de la pasarela, para saber que mi pago está en proceso.  
@@ -447,7 +447,7 @@ RM Shop es una plataforma web que centraliza el catálogo de la marca de ropa RM
   * Tareas funcionales: crear el pedido al iniciar el pago; mostrar el estado "Pendiente de Pago".  
   * Entrada: inicio del pago \| Proceso: se crea el pedido en estado pendiente \| Salida: pedido visible como "Pendiente de Pago".  
   * Flujo de interfaz (texto): tras iniciar el pago, el cliente ve su pedido "Pendiente de Pago" en el detalle o la lista de pedidos.  
-  * Reglas de negocio y datos: se mantiene hasta la respuesta o hasta 30 minutos (HU-24). Durante ese tiempo el stock sigue retenido.  
+  * Reglas de negocio y datos: se mantiene hasta la respuesta o hasta 30 minutos (HU-24). Durante ese tiempo el stock sigue retenido. En el backend el pedido se crea en el checkout provisional (`POST /api/v1/checkout`) y el pago se inicia después sobre ese pedido.  
 * Restricciones (requerimientos no funcionales):  
   * El estado aparece en 2 segundos o menos tras iniciar el pago.  
   * El estado se muestra con texto, no solo con color.  

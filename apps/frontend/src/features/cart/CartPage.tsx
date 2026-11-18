@@ -4,6 +4,7 @@ import { Link } from "react-router";
 import { ApiError } from "@/shared/api/client";
 import { formatCOP } from "@/shared/lib/formatCOP";
 import { ErrorNotice, QueryFeedback } from "@/shared/ui/Feedback";
+import { TestPaymentButton } from "@/features/checkout/TestPaymentButton";
 import { useCart, useReReserveCartItem, useRemoveCartItem, useUpdateCartItem } from "./api";
 import { ReservationCountdown } from "./ReservationCountdown";
 
@@ -154,6 +155,7 @@ export function CartPage() {
             >
               Total: {formatCOP(Number(cart.total_price))}
             </p>
+            <TestPaymentButton />
           </>
         ))}
     </section>
