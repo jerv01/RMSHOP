@@ -229,16 +229,28 @@ def build_mp_order_payload(
                 "description": f"{item.color} / {item.size}"[:100],
             }
             for item in order.items.all()
+        ]
+        # MercadoPago exige que la suma de items sea igual a total_amount (incluye el envío).
+        + [
+            {
+                "title": f"Envío {order.municipality}",
+                "unit_price": str(int(order.shipping_cost)),
+                "quantity": 1,
+            }
         ],
         "config": {"location": {"state_id": _STATE_ID}},
     }
     if method == PaymentMethod.PSE:
         payload["shipment"] = {"address": address}
         payload["config"]["online"] = {
-            "callback_url": f"{settings.FRONTEND_BASE_URL.rstrip('/')}/pedidos/{order.order_number}"
+            # MercadoPago rechaza URLs locales (processing_error): debe ser pública y https.
+            "callback_url": (
+                f"{settings.MERCADOPAGO_CALLBACK_BASE_URL.rstrip('/')}/pedidos/{order.order_number}"
+            )
         }
         if ip_address:
-            payload["additional_info"] = {"payer": {"ip_address": ip_address}}
+            # La API real pide la clave plana "payer.ip_address", no un objeto anidado.
+            payload["additional_info"] = {"payer.ip_address": ip_address}
     return payload
 
 

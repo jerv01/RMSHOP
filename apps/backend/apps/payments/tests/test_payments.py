@@ -136,9 +136,11 @@ def test_ac_hu_20_1_pse_redirects_to_bank_then_sync_approves(customer_api, pendi
     assert sent["payer"]["address"]["city"] == "Cali"
     assert sent["shipment"]["address"]["street_name"] == "Calle 10 # 20-30"
     assert sent["config"]["online"]["callback_url"] == (
-        f"http://tienda.test/pedidos/{pending_order.order_number}"
+        f"https://tienda.test/pedidos/{pending_order.order_number}"
     )
-    assert sent["additional_info"]["payer"]["ip_address"]
+    assert sent["additional_info"]["payer.ip_address"]
+    # La suma de items (prendas + envío) debe igualar total_amount.
+    assert sum(int(i["unit_price"]) * i["quantity"] for i in sent["items"]) == 105000
 
     mp.get("/v1/orders/ORD01TEST").respond(200, json=mp_order("processed", "accredited"))
     synced = customer_api.post(f"/api/v1/orders/{pending_order.order_number}/payments/sync")

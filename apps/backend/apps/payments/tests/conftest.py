@@ -12,7 +12,7 @@ def mp_settings(settings):
     settings.MERCADOPAGO_ACCESS_TOKEN = "APP_USR-token-de-prueba"
     settings.MERCADOPAGO_API_BASE_URL = MP_BASE_URL
     settings.MERCADOPAGO_TIMEOUT_SECONDS = 1
-    settings.FRONTEND_BASE_URL = "http://tienda.test"
+    settings.MERCADOPAGO_CALLBACK_BASE_URL = "https://tienda.test"
     return settings
 
 

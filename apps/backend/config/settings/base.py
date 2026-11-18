@@ -170,6 +170,9 @@ MERCADOPAGO_ACCESS_TOKEN = env("MERCADOPAGO_ACCESS_TOKEN", "")
 MERCADOPAGO_API_BASE_URL = env("MERCADOPAGO_API_BASE_URL", "https://api.mercadopago.com")
 # Menor que el límite de 5 s para iniciar el pago (NFR HU-19/HU-20).
 MERCADOPAGO_TIMEOUT_SECONDS = float(env("MERCADOPAGO_TIMEOUT_SECONDS", "4"))
+# A dónde vuelve el cliente tras pagar con PSE. MercadoPago solo acepta URLs públicas https;
+# en local usa un túnel (o cualquier https y abre /pedidos/<n> a mano).
+MERCADOPAGO_CALLBACK_BASE_URL = env("MERCADOPAGO_CALLBACK_BASE_URL", "") or FRONTEND_BASE_URL
 
 # Correo
 EMAIL_HOST = env("EMAIL_HOST", "localhost")
