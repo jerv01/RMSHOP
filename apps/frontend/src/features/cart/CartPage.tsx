@@ -4,7 +4,6 @@ import { Link } from "react-router";
 import { ApiError } from "@/shared/api/client";
 import { formatCOP } from "@/shared/lib/formatCOP";
 import { ErrorNotice, QueryFeedback } from "@/shared/ui/Feedback";
-import { TestPaymentButton } from "@/features/checkout/TestPaymentButton";
 import { useCart, useReReserveCartItem, useRemoveCartItem, useUpdateCartItem } from "./api";
 import { ReservationCountdown } from "./ReservationCountdown";
 
@@ -149,13 +148,19 @@ export function CartPage() {
                 </li>
               ))}
             </ul>
-            <p
-              aria-label="Total del carrito"
-              className="border-t border-border pt-4 text-right text-xl font-bold"
-            >
-              Total: {formatCOP(Number(cart.total_price))}
-            </p>
-            <TestPaymentButton />
+            <div className="flex flex-col items-end gap-4 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
+              <Link to="/pedidos" className="btn-secondary">
+                Ver mis pedidos
+              </Link>
+              <div className="flex flex-wrap items-center justify-end gap-4">
+                <p aria-label="Total del carrito" className="text-right text-xl font-bold">
+                  Total: {formatCOP(Number(cart.total_price))}
+                </p>
+                <Link to="/checkout" className="btn-primary">
+                  Continuar al pago
+                </Link>
+              </div>
+            </div>
           </>
         ))}
     </section>

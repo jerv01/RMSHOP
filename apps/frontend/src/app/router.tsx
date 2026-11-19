@@ -4,10 +4,12 @@ import { AdminSignUpPage } from "@/features/auth/AdminSignUpPage";
 import { RequireAdmin } from "@/features/auth/RequireAdmin";
 import { RequireAuth } from "@/features/auth/RequireAuth";
 import { CartPage } from "@/features/cart/CartPage";
+import { CheckoutPage } from "@/features/checkout/CheckoutPage";
 import { SignInPage } from "@/features/auth/SignInPage";
 import { SignUpPage } from "@/features/auth/SignUpPage";
 import { ProductDetailPage } from "@/features/catalog/ProductDetailPage";
 import { OrderResultPage } from "@/features/orders/OrderResultPage";
+import { OrdersListPage } from "@/features/orders/OrdersListPage";
 import { DataPolicyPage } from "@/features/legal/DataPolicyPage";
 import { AdminLayout } from "./layouts/AdminLayout";
 import { StoreLayout } from "./layouts/StoreLayout";
@@ -25,6 +27,8 @@ export const router = createBrowserRouter([
         element: <RequireAuth />,
         children: [
           { path: "/carrito", element: <CartPage /> },
+          { path: "/checkout", element: <CheckoutPage /> },
+          { path: "/pedidos", element: <OrdersListPage /> },
           { path: "/pedidos/:numero", element: <OrderResultPage /> },
         ],
       },
