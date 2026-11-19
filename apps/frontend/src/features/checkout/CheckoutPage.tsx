@@ -33,6 +33,7 @@ export function CheckoutPage() {
   // para que cualquier reintento de pago opere sobre el mismo pedido sin duplicar órdenes (HU-21).
   const [createdOrder, setCreatedOrder] = useState<OrderDetail | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [addressError, setAddressError] = useState<string | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [redirectUrl, setRedirectUrl] = useState<string | null>(null);
 
@@ -44,12 +45,15 @@ export function CheckoutPage() {
   const total = createdOrder ? Number(createdOrder.total) : subtotal + shippingCost;
 
   function validateShipping(): boolean {
+    setAddressError(null);
     if (!selectedZone) {
       setFormError(MUNICIPALITY_NOT_COVERED_MESSAGE);
       return false;
     }
     if (!addressLine.trim()) {
-      setFormError("Ingresa la dirección de entrega.");
+      const message = "Ingresa la dirección de entrega.";
+      setAddressError(message);
+      setFormError(message);
       return false;
     }
     if (!recipientName.trim()) {
@@ -212,7 +216,9 @@ export function CheckoutPage() {
           <div className="panel space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3">
               <h2 className="text-lg font-bold">1. Dirección de envío</h2>
-              <span className="badge">Entrega estimada: {ESTIMATED_DELIVERY_RANGE}</span>
+              {(createdOrder || selectedZone) && (
+                <span className="badge">Entrega estimada: {ESTIMATED_DELIVERY_RANGE}</span>
+              )}
             </div>
 
             {createdOrder ? (
@@ -244,7 +250,6 @@ export function CheckoutPage() {
                         {zone.municipality} ({formatCOP(zone.fee)})
                       </option>
                     ))}
-                    <option value="Fuera de cobertura">Otro municipio</option>
                   </select>
                 </label>
 
@@ -263,12 +268,24 @@ export function CheckoutPage() {
                 <label className="field sm:col-span-2">
                   <span>Dirección de entrega</span>
                   <input
+                    aria-invalid={addressError ? "true" : "false"}
+                    aria-describedby={addressError ? "address-error" : undefined}
+                    maxLength={255}
                     type="text"
                     disabled={busy}
                     placeholder="Calle 10 # 20-30 Apto 401"
                     value={addressLine}
-                    onChange={(e) => setAddressLine(e.target.value)}
+                    onChange={(e) => {
+                      setAddressLine(e.target.value);
+                      if (addressError) setAddressError(null);
+                      if (formError === "Ingresa la dirección de entrega.") setFormError(null);
+                    }}
                   />
+                  {addressError && (
+                    <span id="address-error" role="alert" className="field-error">
+                      {addressError}
+                    </span>
+                  )}
                 </label>
 
                 <label className="field sm:col-span-2">
@@ -342,10 +359,12 @@ export function CheckoutPage() {
                 {selectedZone || createdOrder ? formatCOP(shippingCost) : "No disponible"}
               </dd>
             </div>
-            <div className="flex justify-between">
-              <dt className="text-muted">Entrega estimada</dt>
-              <dd className="font-medium">{ESTIMATED_DELIVERY_RANGE}</dd>
-            </div>
+            {(createdOrder || selectedZone) && (
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted">Entrega estimada</dt>
+                <dd className="font-medium">{ESTIMATED_DELIVERY_RANGE}</dd>
+              </div>
+            )}
             <div className="flex justify-between border-t border-border pt-3 text-base font-bold">
               <dt>Total</dt>
               <dd aria-label="Total a pagar">{formatCOP(total)}</dd>

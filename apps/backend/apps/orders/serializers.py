@@ -4,16 +4,33 @@ from apps.orders.models import Order, OrderItem, OrderStatusHistory
 
 
 class CheckoutInputSerializer(serializers.Serializer):
-    """Datos mínimos de envío para crear el pedido (checkout provisional, HU-19 a HU-21)."""
+    """Datos de envío validados antes de crear el pedido (HU-25)."""
 
-    municipality = serializers.CharField(max_length=100)
-    address_line = serializers.CharField(max_length=255)
+    municipality = serializers.CharField(
+        max_length=100,
+        error_messages={"blank": "Selecciona un municipio de entrega."},
+    )
+    address_line = serializers.CharField(
+        max_length=255,
+        trim_whitespace=True,
+        error_messages={
+            "blank": "Ingresa la dirección de entrega.",
+            "max_length": "La dirección no puede superar 255 caracteres.",
+        },
+    )
     recipient_name = serializers.CharField(max_length=120)
     phone = serializers.RegexField(
         regex=r"^\+?[0-9 ]{7,20}$",
         max_length=20,
         error_messages={"invalid": "Ingresa un teléfono válido (solo números)."},
     )
+
+    def validate_address_line(self, value: str) -> str:
+        """Conserva caracteres válidos de nomenclatura y evita direcciones solo vacías."""
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Ingresa la dirección de entrega.")
+        return value
 
 
 class OrderItemSerializer(serializers.ModelSerializer):

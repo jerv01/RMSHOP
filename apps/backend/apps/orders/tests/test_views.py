@@ -36,6 +36,38 @@ def test_checkout_uncovered_municipality_message(customer_api, cart_with_item, c
     assert response.json()["message"] == "Solo enviamos a Cali, Palmira, Jamundí y Yumbo."
 
 
+@pytest.mark.parametrize(
+    ("address_line", "expected_message"),
+    [
+        ("", "Ingresa la dirección de entrega."),
+        ("   ", "Ingresa la dirección de entrega."),
+        ("x" * 256, "La dirección no puede superar 255 caracteres."),
+    ],
+)
+def test_hu_25_rejects_empty_or_too_long_address(
+    customer_api, cart_with_item, checkout_data, address_line, expected_message
+):
+    response = customer_api.post(
+        "/api/v1/checkout", {**checkout_data, "address_line": address_line}
+    )
+
+    assert response.status_code == 400
+    assert response.json()["fields"]["address_line"] == [expected_message]
+
+
+def test_hu_25_persists_special_characters_and_normalizes_address(
+    customer_api, cart_with_item, checkout_data
+):
+    address = "Carrera 1 # 2-03, Torre B — Apto 4º (sur)"
+    response = customer_api.post(
+        "/api/v1/checkout", {**checkout_data, "address_line": f"  {address}  "}
+    )
+
+    assert response.status_code == 201
+    assert response.json()["address_line"] == address
+    assert response.json()["municipality"] == "Cali"
+
+
 def test_ac_hu_21_1_customer_sees_pending_order(customer_api, cart_with_item, checkout_data):
     order_number = customer_api.post("/api/v1/checkout", checkout_data).json()["order_number"]
 
