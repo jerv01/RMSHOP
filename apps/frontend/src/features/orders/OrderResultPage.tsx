@@ -286,6 +286,10 @@ export function OrderResultPage() {
                     <strong className="text-foreground">Recibe:</strong> {order.recipient_name} (
                     {order.phone})
                   </p>
+                  <p>
+                    <strong className="text-foreground">Entrega estimada:</strong>{" "}
+                    {ESTIMATED_DELIVERY_RANGE}
+                  </p>
                 </div>
               )}
             </div>
